@@ -1,0 +1,34 @@
+# Backlog
+
+Not yet scheduled. Rough notes on scope so each can be picked up cold.
+
+## Complete Smart Folders
+`Unread Mail` is done. Still to add under the "Smart Folders" quasi-account:
+- **Aggregated Inbox** — newest messages across every account's inbox.
+- **Sent Items** — aggregated, using each account's `\Sent` special folder.
+- **Favourites** — a local store of starred messages (account id + folder + uid),
+  a star toggle in the list/reading pane, and the aggregated view.
+Needs: per-account special-folder resolution (MailService already resolves Trash
+via `SpecialFolder`), a `FavouritesStore`, and cross-account cache queries in
+`MessageCache` (see `LoadUnread`).
+
+## HTML-formatted emails
+Compose is plain text only. Add a rich editor (RichEditBox) in the reading-pane
+composer, send `multipart/alternative` (plain + HTML) via MimeKit
+`BodyBuilder`. Quoting on reply/forward should wrap the original HTML.
+
+## Signatures
+Per-account signature text (plain, later HTML). Store on `MailAccount`
+(`Signature`), edit in the Add/Edit Account dialog, append on New/Reply/Forward
+in `StartCompose` (above the quoted block).
+
+## Priority
+Read `MimeMessage.Priority` / `Importance` / `X-Priority` in `GetSummariesAsync`
+and `GetMessageContent`; persist on the summary row; show a marker in the list
+and reading pane. Let the composer set High/Normal/Low.
+
+## Hashtags
+User tags on a message (`#rego`, `#project-x`). Store locally in SQLite
+(`Tags(AccountId, Folder, Uid, Tag)`). Add via message context menu / a tag
+field in the reading pane; show as chips; filter the list by tag and expose
+saved tag filters under Smart Folders.
