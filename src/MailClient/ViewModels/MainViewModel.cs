@@ -50,6 +50,9 @@ public sealed partial class MainViewModel : ObservableObject
     private MailAccount? AccountFor(MessageRow row) =>
         CurrentAccount ?? AccountStore.Find(row.AccountId);
 
+    public MessageRow? FindRow(string folder, uint uid) =>
+        _rows.FirstOrDefault(r => r.Folder == folder && r.Uid == uid);
+
     /// Loads a folder: cached rows first (instant), then the live IMAP fetch.
     /// <param name="quiet">Background poll - keep the existing list visible and don't show a spinner.</param>
     public async Task OpenFolderAsync(MailAccount account, string folderFullName, string title, bool quiet = false)
@@ -109,7 +112,8 @@ public sealed partial class MainViewModel : ObservableObject
                     var body = fresh.Count == 1
                         ? $"{newest.From}: {newest.SubjectDisplay}"
                         : $"{fresh.Count} new messages in {title}";
-                    NotificationService.Show("New mail", body);
+                    NotificationService.ShowNewMail("New mail", body,
+                        new MailRef(account.Id, folderFullName, newest.Uid));
                 }
             });
         }

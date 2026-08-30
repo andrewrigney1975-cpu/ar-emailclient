@@ -33,6 +33,8 @@ public sealed partial class MainWindow : Window
     private bool _restoredLastFolder;
     private CalendarSuggestion? _currentSuggestion;
     private DispatcherTimer? _pollTimer;
+    private MailRef? _pendingNotificationMail;
+    private bool _loaded;
 
     public MainWindow()
     {
@@ -65,6 +67,7 @@ public sealed partial class MainWindow : Window
         _ = new ColumnSplitterController(ReadingSplitter, ListColumn, invert: false, min: 280, max: 620,
             onResized: w => AppSettings.Update(s => s.ListWidth = w));
 
+        NotificationService.MailActivated += OnMailActivated;
         AccountStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(BuildTree);
         CalendarStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
@@ -74,20 +77,86 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _pollTimer?.Stop();
+            NotificationService.MailActivated -= OnMailActivated;
             MailService.DisconnectAll();
             NotificationService.Unregister();
         };
 
         ApplyCalendarVisibility(settings.CalendarVisible);
 
-        RootGrid.Loaded += (_, _) =>
+        RootGrid.Loaded += async (_, _) =>
         {
             BuildTree();
             RailCalendar.SetDisplayDate(DateTimeOffset.Now);
             RefreshCalendarDay();
             CheckEventReminders();
             StartPolling();
+
+            _loaded = true;
+            if (_pendingNotificationMail is { } pending)
+            {
+                _pendingNotificationMail = null;
+                await OpenMailFromNotificationAsync(pending);
+            }
         };
+    }
+
+    /// Entry point for a "new mail" toast click (App routes cold-launch activations here).
+    public void OpenFromNotification(MailRef reference)
+    {
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (!_loaded)
+            {
+                _pendingNotificationMail = reference;
+                return;
+            }
+
+            await OpenMailFromNotificationAsync(reference);
+        });
+    }
+
+    private void OnMailActivated(MailRef reference) => OpenFromNotification(reference);
+
+    private async Task OpenMailFromNotificationAsync(MailRef reference)
+    {
+        BringToForeground();
+
+        var account = AccountStore.Find(reference.AccountId);
+        if (account is null)
+        {
+            return;
+        }
+
+        var folderNode = _railNodes
+            .SelectMany(n => n.Children)
+            .FirstOrDefault(c => c.AccountId == reference.AccountId && c.FolderFullName == reference.Folder);
+
+        await _vm.OpenFolderAsync(account, reference.Folder, folderNode?.DisplayName ?? reference.Folder);
+
+        var row = _vm.FindRow(reference.Folder, reference.Uid)
+                  ?? new MessageRow { AccountId = reference.AccountId, Folder = reference.Folder, Uid = reference.Uid };
+
+        await _vm.OpenMessageAsync(row);
+        await RenderCurrentMessageAsync();
+    }
+
+    private void BringToForeground()
+    {
+        try
+        {
+            if (AppWindow?.Presenter is Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Minimized } presenter)
+            {
+                presenter.Restore();
+            }
+
+            AppWindow?.Show();
+            Activate();
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.BringToForeground", ex);
+        }
     }
 
     private void StartPolling()

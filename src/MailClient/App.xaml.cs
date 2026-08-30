@@ -25,11 +25,33 @@ public partial class App : Application
             Services.NotificationService.Register();
             _window = new MainWindow();
             _window.Activate();
+
+            RouteNotificationLaunch();
         }
         catch (Exception ex)
         {
             LogCrash(ex, "OnLaunched");
             throw;
+        }
+    }
+
+    /// If the app was started (cold) by clicking a "new mail" toast, open that message.
+    private void RouteNotificationLaunch()
+    {
+        try
+        {
+            var activation = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
+            if (activation.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.AppNotification &&
+                activation.Data is Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs n &&
+                Services.NotificationService.ParseMailRef(n.Arguments) is { } mail &&
+                _window is MainWindow mainWindow)
+            {
+                mainWindow.OpenFromNotification(mail);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogCrash(ex, "RouteNotificationLaunch");
         }
     }
 

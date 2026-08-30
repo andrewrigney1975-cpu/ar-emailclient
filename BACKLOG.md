@@ -27,6 +27,12 @@ Read `MimeMessage.Priority` / `Importance` / `X-Priority` in `GetSummariesAsync`
 and `GetMessageContent`; persist on the summary row; show a marker in the list
 and reading pane. Let the composer set High/Normal/Low.
 
+## Single-instance toast activation
+Toast clicks are handled in-process (`NotificationInvoked`) and on cold launch
+(`RouteNotificationLaunch`). Add `AppInstance` key registration +
+`RedirectActivationToAsync` so a toast click can never spin up a second window
+when one is already running.
+
 ## Hashtags
 User tags on a message (`#rego`, `#project-x`). Store locally in SQLite
 (`Tags(AccountId, Folder, Uid, Tag)`). Add via message context menu / a tag
