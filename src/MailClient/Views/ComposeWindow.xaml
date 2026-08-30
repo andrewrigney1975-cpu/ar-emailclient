@@ -1,0 +1,40 @@
+<Window
+    x:Class="MailClient.Views.ComposeWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource ControlFillColorDefaultBrush}">
+            <TextBlock Text="New message" FontWeight="SemiBold" FontSize="13" Margin="16,0,0,0" VerticalAlignment="Center" />
+        </Grid>
+
+        <StackPanel Grid.Row="1" Padding="16,12,16,0" Spacing="8">
+            <TextBox x:Name="ToBox" Header="To" PlaceholderText="recipient@example.com, another@example.com" />
+            <TextBox x:Name="CcBox" Header="Cc" />
+            <TextBox x:Name="SubjectBox" Header="Subject" />
+        </StackPanel>
+
+        <Rectangle Grid.Row="2" Height="1" Margin="0,12,0,0" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+        <TextBox Grid.Row="3" x:Name="BodyBox" Margin="16" AcceptsReturn="True" TextWrapping="Wrap"
+                 VerticalAlignment="Stretch" VerticalContentAlignment="Top"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto" PlaceholderText="Write your message..." />
+
+        <Grid Grid.Row="4" Padding="16,10" ColumnSpacing="8"
+              BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+            <InfoBar x:Name="StatusBar" IsOpen="False" IsClosable="False" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Content="Discard" Click="Discard_Click" />
+                <Button x:Name="SendButton" Content="Send" Style="{ThemeResource AccentButtonStyle}" Click="Send_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

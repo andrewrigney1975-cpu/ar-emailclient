@@ -1,0 +1,361 @@
+using System.Text.RegularExpressions;
+using MailClient.Models;
+using MailKit;
+using MailKit.Net.Imap;
+using MailKit.Net.Smtp;
+using MailKit.Search;
+using MailKit.Security;
+using MimeKit;
+
+namespace MailClient.Services;
+
+/// Thin MailKit wrapper: one long-lived IMAP connection per account (operations serialised with a
+/// semaphore and reconnected on demand), plus fire-and-forget SMTP sends.
+public static class MailService
+{
+    private const int SummaryFetchCount = 80;
+
+    private static readonly MessageSummaryItems SummaryItems =
+        MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags |
+        MessageSummaryItems.BodyStructure | MessageSummaryItems.PreviewText;
+
+    private static readonly Dictionary<string, ImapConnection> Connections = new();
+    private static readonly object ConnLock = new();
+
+    private static ImapConnection ConnectionFor(MailAccount account)
+    {
+        lock (ConnLock)
+        {
+            if (!Connections.TryGetValue(account.Id, out var conn))
+            {
+                Connections[account.Id] = conn = new ImapConnection(account);
+            }
+
+            return conn;
+        }
+    }
+
+    public static void Disconnect(string accountId)
+    {
+        lock (ConnLock)
+        {
+            if (Connections.Remove(accountId, out var conn))
+            {
+                conn.Dispose();
+            }
+        }
+    }
+
+    public static void DisconnectAll()
+    {
+        lock (ConnLock)
+        {
+            foreach (var conn in Connections.Values)
+            {
+                conn.Dispose();
+            }
+
+            Connections.Clear();
+        }
+    }
+
+    // ----- folders -----
+
+    public sealed record FolderInfo(string FullName, string Name, string[] Path, int Unread);
+
+    public static async Task<List<FolderInfo>> GetFoldersAsync(MailAccount account, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        return await conn.RunAsync(async client =>
+        {
+            var result = new List<FolderInfo>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ns in client.PersonalNamespaces)
+            {
+                var root = client.GetFolder(ns);
+                await AddFolderTreeAsync(root, result, seen, ct);
+            }
+
+            if (seen.Add(client.Inbox.FullName))
+            {
+                await client.Inbox.StatusAsync(StatusItems.Unread, ct);
+                result.Insert(0, new FolderInfo(client.Inbox.FullName, "Inbox", new[] { "Inbox" }, client.Inbox.Unread));
+            }
+
+            return result;
+        }, ct);
+    }
+
+    private static async Task AddFolderTreeAsync(IMailFolder parent, List<FolderInfo> into, HashSet<string> seen, CancellationToken ct)
+    {
+        IList<IMailFolder> children;
+        try
+        {
+            children = await parent.GetSubfoldersAsync(StatusItems.Unread, false, ct);
+        }
+        catch (Exception ex) when (ex is ImapCommandException or ImapProtocolException)
+        {
+            return;
+        }
+
+        foreach (var folder in children)
+        {
+            if ((folder.Attributes & FolderAttributes.NonExistent) != 0)
+            {
+                continue;
+            }
+
+            if ((folder.Attributes & FolderAttributes.NoSelect) == 0 && seen.Add(folder.FullName))
+            {
+                var sep = folder.DirectorySeparator == '\0' ? '/' : folder.DirectorySeparator;
+                var path = folder.FullName.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                into.Add(new FolderInfo(folder.FullName, folder.Name, path.Length == 0 ? new[] { folder.Name } : path, folder.Unread));
+            }
+
+            await AddFolderTreeAsync(folder, into, seen, ct);
+        }
+    }
+
+    // ----- message list -----
+
+    public static async Task<List<MessageRow>> GetSummariesAsync(MailAccount account, string folderFullName, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        return await conn.RunAsync(async client =>
+        {
+            var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadOnly, ct);
+            var count = folder.Count;
+            if (count == 0)
+            {
+                return new List<MessageRow>();
+            }
+
+            var start = Math.Max(0, count - SummaryFetchCount);
+            var summaries = await folder.FetchAsync(start, -1, SummaryItems, ct);
+
+            return summaries
+                .OrderByDescending(s => s.Date)
+                .Select(s => new MessageRow
+                {
+                    AccountId = account.Id,
+                    Folder = folderFullName,
+                    Uid = s.UniqueId.Id,
+                    From = s.Envelope?.From.Mailboxes.FirstOrDefault()?.Name is { Length: > 0 } n
+                        ? n
+                        : s.Envelope?.From.Mailboxes.FirstOrDefault()?.Address ?? "(unknown)",
+                    FromAddress = s.Envelope?.From.Mailboxes.FirstOrDefault()?.Address ?? string.Empty,
+                    Subject = s.Envelope?.Subject ?? string.Empty,
+                    Preview = s.PreviewText ?? string.Empty,
+                    Date = s.Date,
+                    HasAttachments = s.Attachments.Any(),
+                    IsRead = s.Flags?.HasFlag(MessageFlags.Seen) ?? false,
+                })
+                .ToList();
+        }, ct);
+    }
+
+    // ----- single message -----
+
+    public static async Task<MailMessageContent> GetMessageAsync(MailAccount account, string folderFullName, uint uid, bool allowRemoteContent, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        return await conn.RunAsync(async client =>
+        {
+            var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadOnly, ct);
+            var message = await folder.GetMessageAsync(new UniqueId(uid), ct);
+
+            var (html, hadRemote) = message.HtmlBody is { } rawHtml
+                ? NeutraliseRemoteContent(rawHtml, allowRemoteContent)
+                : (null, false);
+
+            var attachments = message.Attachments
+                .Select((a, i) => new MailAttachmentInfo(
+                    a.ContentDisposition?.FileName ?? a.ContentType.Name ?? $"attachment-{i + 1}",
+                    (a as MimePart)?.Content?.Stream?.Length ?? 0,
+                    i))
+                .ToList();
+
+            return new MailMessageContent
+            {
+                Subject = message.Subject ?? string.Empty,
+                FromDisplay = string.Join(", ", message.From.Mailboxes.Select(m => m.Name is { Length: > 0 } ? $"{m.Name} <{m.Address}>" : m.Address)),
+                FromAddress = message.From.Mailboxes.FirstOrDefault()?.Address ?? string.Empty,
+                ReplyToAddress = message.ReplyTo.Mailboxes.FirstOrDefault()?.Address
+                    ?? message.From.Mailboxes.FirstOrDefault()?.Address ?? string.Empty,
+                ToDisplay = string.Join(", ", message.To.Mailboxes.Select(m => m.Address)),
+                CcDisplay = string.Join(", ", message.Cc.Mailboxes.Select(m => m.Address)),
+                Date = message.Date,
+                Html = html,
+                PlainText = message.TextBody,
+                HadRemoteContent = hadRemote,
+                Attachments = attachments,
+                MessageId = message.MessageId ?? string.Empty,
+                References = string.Join(" ", message.References),
+            };
+        }, ct);
+    }
+
+    public static async Task MarkReadAsync(MailAccount account, string folderFullName, uint uid, bool read, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadWrite, ct);
+            if (read)
+            {
+                await folder.AddFlagsAsync(new UniqueId(uid), MessageFlags.Seen, true, ct);
+            }
+            else
+            {
+                await folder.RemoveFlagsAsync(new UniqueId(uid), MessageFlags.Seen, true, ct);
+            }
+
+            return true;
+        }, ct);
+    }
+
+    public static async Task DeleteAsync(MailAccount account, string folderFullName, uint uid, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadWrite, ct);
+            var trash = client.GetFolder(SpecialFolder.Trash);
+            var id = new UniqueId(uid);
+
+            if (trash is not null && !trash.FullName.Equals(folderFullName, StringComparison.OrdinalIgnoreCase))
+            {
+                await folder.MoveToAsync(id, trash, ct);
+            }
+            else
+            {
+                await folder.AddFlagsAsync(id, MessageFlags.Deleted, true, ct);
+                await folder.ExpungeAsync(ct);
+            }
+
+            return true;
+        }, ct);
+    }
+
+    // ----- send -----
+
+    public static async Task SendAsync(MailAccount account, MimeMessage message, CancellationToken ct)
+    {
+        using var smtp = new SmtpClient();
+        var options = account.SmtpUseSsl ? SecureSocketOptions.Auto : SecureSocketOptions.StartTlsWhenAvailable;
+        await smtp.ConnectAsync(account.SmtpHost, account.SmtpPort, options, ct);
+        await smtp.AuthenticateAsync(account.Username, AccountStore.PasswordOf(account), ct);
+        await smtp.SendAsync(message, ct);
+        await smtp.DisconnectAsync(true, ct);
+    }
+
+    /// A minimal connect+auth used by the Add Account dialog to validate credentials before saving.
+    public static async Task VerifyAsync(MailAccount account, string plainPassword, CancellationToken ct)
+    {
+        using var imap = new ImapClient();
+        await imap.ConnectAsync(account.ImapHost, account.ImapPort,
+            account.ImapUseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable, ct);
+        await imap.AuthenticateAsync(account.Username, plainPassword, ct);
+        await imap.DisconnectAsync(true, ct);
+
+        using var smtp = new SmtpClient();
+        await smtp.ConnectAsync(account.SmtpHost, account.SmtpPort,
+            account.SmtpUseSsl ? SecureSocketOptions.Auto : SecureSocketOptions.StartTlsWhenAvailable, ct);
+        await smtp.AuthenticateAsync(account.Username, plainPassword, ct);
+        await smtp.DisconnectAsync(true, ct);
+    }
+
+    // ----- helpers -----
+
+    private static async Task<IMailFolder> OpenAsync(ImapClient client, string fullName, FolderAccess access, CancellationToken ct)
+    {
+        var folder = fullName.Equals("INBOX", StringComparison.OrdinalIgnoreCase)
+            ? client.Inbox
+            : await client.GetFolderAsync(fullName, ct);
+
+        if (folder.Access != access || !folder.IsOpen)
+        {
+            await folder.OpenAsync(access, ct);
+        }
+
+        return folder;
+    }
+
+    /// Blocks remote images/CSS (tracking pixels) unless the user has opted in for this message.
+    private static (string Html, bool HadRemote) NeutraliseRemoteContent(string html, bool allow)
+    {
+        if (allow)
+        {
+            return (html, Regex.IsMatch(html, @"(?i)(src|background)\s*=\s*[""']?https?://"));
+        }
+
+        var hadRemote = false;
+        var neutralised = Regex.Replace(html, @"(?i)(<img\b[^>]*?\bsrc\s*=\s*)([""']?)https?://[^""'\s>]+\2",
+            m => { hadRemote = true; return m.Groups[1].Value + "\"\""; });
+
+        neutralised = Regex.Replace(neutralised, @"(?i)(background\s*=\s*)([""']?)https?://[^""'\s>]+\2",
+            m => { hadRemote = true; return m.Groups[1].Value + "\"\""; });
+
+        neutralised = Regex.Replace(neutralised, @"(?i)url\(\s*[""']?https?://[^)]+\)",
+            m => { hadRemote = true; return "none"; });
+
+        return (neutralised, hadRemote);
+    }
+
+    private sealed class ImapConnection : IDisposable
+    {
+        private readonly MailAccount _account;
+        private readonly SemaphoreSlim _gate = new(1, 1);
+        private ImapClient? _client;
+
+        public ImapConnection(MailAccount account) => _account = account;
+
+        public async Task<T> RunAsync<T>(Func<ImapClient, Task<T>> op, CancellationToken ct)
+        {
+            await _gate.WaitAsync(ct);
+            try
+            {
+                var client = await EnsureConnectedAsync(ct);
+                try
+                {
+                    return await op(client);
+                }
+                catch (Exception ex) when (ex is ImapProtocolException or IOException or ServiceNotConnectedException)
+                {
+                    // Stale connection - drop it and retry once from scratch.
+                    LoggingService.Warn("ImapConnection: reconnecting", ex);
+                    _client?.Dispose();
+                    _client = null;
+                    return await op(await EnsureConnectedAsync(ct));
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        private async Task<ImapClient> EnsureConnectedAsync(CancellationToken ct)
+        {
+            if (_client is { IsConnected: true, IsAuthenticated: true })
+            {
+                return _client;
+            }
+
+            _client?.Dispose();
+            _client = new ImapClient { Timeout = 60_000 };
+
+            await _client.ConnectAsync(_account.ImapHost, _account.ImapPort,
+                _account.ImapUseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable, ct);
+            await _client.AuthenticateAsync(_account.Username, AccountStore.PasswordOf(_account), ct);
+            return _client;
+        }
+
+        public void Dispose()
+        {
+            try { _client?.Dispose(); } catch { /* best effort */ }
+            _gate.Dispose();
+        }
+    }
+}

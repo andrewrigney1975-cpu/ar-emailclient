@@ -1,0 +1,44 @@
+<ContentDialog
+    x:Class="MailClient.Views.AddAccountDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Add account"
+    PrimaryButtonText="Test &amp; save"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimary">
+
+    <ScrollViewer MaxHeight="520">
+        <StackPanel Spacing="10" Width="420">
+            <TextBox x:Name="DisplayNameBox" Header="Your name" PlaceholderText="Ada Lovelace" />
+            <TextBox x:Name="EmailBox" Header="Email address" PlaceholderText="you@example.com" TextChanged="EmailBox_TextChanged" />
+            <PasswordBox x:Name="PasswordBox" Header="Password (or app password)" />
+
+            <TextBlock Text="Incoming (IMAP)" FontWeight="SemiBold" Margin="0,6,0,0" />
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="90" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="ImapHostBox" Grid.Column="0" Header="Server" PlaceholderText="imap.example.com" />
+                <NumberBox x:Name="ImapPortBox" Grid.Column="1" Header="Port" Value="993" SpinButtonPlacementMode="Hidden" />
+            </Grid>
+            <CheckBox x:Name="ImapSslBox" Content="Use SSL/TLS" IsChecked="True" />
+
+            <TextBlock Text="Outgoing (SMTP)" FontWeight="SemiBold" Margin="0,6,0,0" />
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="90" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="SmtpHostBox" Grid.Column="0" Header="Server" PlaceholderText="smtp.example.com" />
+                <NumberBox x:Name="SmtpPortBox" Grid.Column="1" Header="Port" Value="587" SpinButtonPlacementMode="Hidden" />
+            </Grid>
+            <CheckBox x:Name="SmtpSslBox" Content="Use SSL/STARTTLS" IsChecked="True" />
+
+            <TextBox x:Name="UsernameBox" Header="Username (if different from email)" />
+
+            <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="False" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>
