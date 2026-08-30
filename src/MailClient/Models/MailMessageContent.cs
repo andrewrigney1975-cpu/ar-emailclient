@@ -18,6 +18,9 @@ public sealed class MailMessageContent
     public string? PlainText { get; init; }
 
     /// The message references remote images/CSS.
+    /// 2 = high, 1 = normal, 0 = low.
+    public int Priority { get; init; } = 1;
+
     public bool HadRemoteContent { get; init; }
 
     /// Remote content was actually loaded for this render (user opted in, or the sender's

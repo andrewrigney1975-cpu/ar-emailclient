@@ -44,4 +44,18 @@ public static class CalendarStore
             Changed?.Invoke(null, EventArgs.Empty);
         }
     }
+
+    public static CalendarEvent? Find(string id) => Store.Load().FirstOrDefault(e => e.Id == id);
+
+    public static void SetDone(string id, bool done)
+    {
+        var list = Store.Load();
+        var entry = list.FirstOrDefault(e => e.Id == id);
+        if (entry is not null && entry.Done != done)
+        {
+            entry.Done = done;
+            Store.Save(list);
+            Changed?.Invoke(null, EventArgs.Empty);
+        }
+    }
 }

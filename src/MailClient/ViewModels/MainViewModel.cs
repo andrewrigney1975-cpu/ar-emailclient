@@ -298,6 +298,29 @@ public sealed partial class MainViewModel : ObservableObject
         IsBusy = false;
     }
 
+    /// Cross-account view of every open follow-up, earliest due first.
+    public async Task ShowFollowUpsAsync()
+    {
+        _listCts.Cancel();
+        _listCts = new CancellationTokenSource();
+
+        CurrentAccount = null;
+        CurrentFolder = string.Empty;
+        SmartView = "followups";
+        CurrentMessage = null;
+        CurrentOpenRow = null;
+        IsBusy = true;
+        StatusText = "Loading…";
+
+        var rows = await Task.Run(() => MessageCache.LoadFollowUps());
+
+        _rows = rows;
+        BuildListNodes();
+        FolderTitle = "Follow Up";
+        StatusText = $"{rows.Count} to follow up";
+        IsBusy = false;
+    }
+
     /// Cross-account view of every starred message.
     public async Task ShowFavouritesAsync()
     {
@@ -427,6 +450,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         "unread" => ShowUnreadAsync(),
         "favourites" => ShowFavouritesAsync(),
+        "followups" => ShowFollowUpsAsync(),
         "inbox" => ShowRoleAsync("inbox", FolderTitle),
         "sent" => ShowRoleAsync("sent", FolderTitle),
         { } sv when sv.StartsWith("tag:", StringComparison.Ordinal) => ShowTagAsync(sv[4..]),
@@ -463,9 +487,12 @@ public sealed partial class MainViewModel : ObservableObject
         ListNodes.Clear();
 
         var favourites = MessageCache.FavouriteKeys();
+        var flagged = MessageCache.FollowKeys();
         foreach (var row in _rows)
         {
-            row.IsFavourite = favourites.Contains($"{row.AccountId}|{row.Folder}|{row.Uid}");
+            var key = $"{row.AccountId}|{row.Folder}|{row.Uid}";
+            row.IsFavourite = favourites.Contains(key);
+            row.IsFlagged = flagged.Contains(key);
         }
 
         var buckets = _rows

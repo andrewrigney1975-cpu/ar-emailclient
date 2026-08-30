@@ -7,6 +7,12 @@ public sealed class CalendarEvent
     public DateTimeOffset Date { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Notes { get; set; } = string.Empty;
+    public bool Done { get; set; }
+
+    /// If this event was created from a message follow-up flag, the message it links back to.
+    public string SourceAccountId { get; set; } = string.Empty;
+    public string SourceFolder { get; set; } = string.Empty;
+    public uint SourceUid { get; set; }
 
     public string TimeDisplay => Date.LocalDateTime.ToString("d MMM yyyy");
 

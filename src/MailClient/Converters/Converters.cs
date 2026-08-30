@@ -45,6 +45,15 @@ public sealed partial class CountToVisibilityConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
+/// Completed calendar items are dimmed.
+public sealed partial class DoneToOpacityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is bool done && done ? 0.45 : 1.0;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
 /// Unread messages get an accent dot and a bolder weight.
 public sealed partial class ReadToOpacityConverter : IValueConverter
 {

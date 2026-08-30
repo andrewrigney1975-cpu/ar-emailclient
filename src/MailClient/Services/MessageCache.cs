@@ -37,6 +37,12 @@ public static class MessageCache
                     AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
                     FromName TEXT, FromAddr TEXT, Subject TEXT, Preview TEXT,
                     DateTicks INTEGER NOT NULL, HasAttachments INTEGER NOT NULL, IsRead INTEGER NOT NULL,
+                    Priority INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY (AccountId, Folder, Uid));
+
+                CREATE TABLE IF NOT EXISTS Follows (
+                    AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
+                    DueTicks INTEGER NOT NULL, EventId TEXT NOT NULL, Done INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (AccountId, Folder, Uid));
 
                 CREATE TABLE IF NOT EXISTS Folders (
@@ -59,16 +65,23 @@ public static class MessageCache
                 """;
             cmd.ExecuteNonQuery();
 
-            // Migrate older Folders tables that predate the Role column.
-            try
+            // Migrate older tables that predate added columns.
+            foreach (var alter in new[]
+                     {
+                         "ALTER TABLE Folders ADD COLUMN Role TEXT NOT NULL DEFAULT ''",
+                         "ALTER TABLE Summaries ADD COLUMN Priority INTEGER NOT NULL DEFAULT 1",
+                     })
             {
-                using var alter = conn.CreateCommand();
-                alter.CommandText = "ALTER TABLE Folders ADD COLUMN Role TEXT NOT NULL DEFAULT ''";
-                alter.ExecuteNonQuery();
-            }
-            catch (SqliteException)
-            {
-                // column already exists
+                try
+                {
+                    using var cmd2 = conn.CreateCommand();
+                    cmd2.CommandText = alter;
+                    cmd2.ExecuteNonQuery();
+                }
+                catch (SqliteException)
+                {
+                    // column already exists
+                }
             }
 
             _initialised = true;
@@ -81,8 +94,9 @@ public static class MessageCache
         {
             using var conn = Open();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT Uid, FromName, FromAddr, Subject, Preview, DateTicks, HasAttachments, IsRead " +
-                              "FROM Summaries WHERE AccountId = @a AND Folder = @f ORDER BY DateTicks DESC";
+            cmd.CommandText =
+                "SELECT Uid, FromName, FromAddr, Subject, Preview, DateTicks, HasAttachments, IsRead, Priority " +
+                "FROM Summaries WHERE AccountId = @a AND Folder = @f ORDER BY DateTicks DESC";
             cmd.Parameters.AddWithValue("@a", accountId);
             cmd.Parameters.AddWithValue("@f", folder);
 
@@ -102,6 +116,7 @@ public static class MessageCache
                     Date = new DateTimeOffset(reader.GetInt64(5), TimeSpan.Zero),
                     HasAttachments = reader.GetInt64(6) != 0,
                     IsRead = reader.GetInt64(7) != 0,
+                    Priority = (int)reader.GetInt64(8),
                 });
             }
 
@@ -130,8 +145,8 @@ public static class MessageCache
             }
 
             using var ins = conn.CreateCommand();
-            ins.CommandText = "INSERT INTO Summaries VALUES (@a, @f, @u, @fn, @fa, @s, @p, @d, @ha, @r)";
-            foreach (var p in new[] { "@a", "@f", "@u", "@fn", "@fa", "@s", "@p", "@d", "@ha", "@r" })
+            ins.CommandText = "INSERT INTO Summaries VALUES (@a, @f, @u, @fn, @fa, @s, @p, @d, @ha, @r, @pr)";
+            foreach (var p in new[] { "@a", "@f", "@u", "@fn", "@fa", "@s", "@p", "@d", "@ha", "@r", "@pr" })
             {
                 ins.Parameters.Add(new SqliteParameter(p, null));
             }
@@ -148,6 +163,7 @@ public static class MessageCache
                 ins.Parameters["@d"].Value = row.Date.UtcTicks;
                 ins.Parameters["@ha"].Value = row.HasAttachments ? 1 : 0;
                 ins.Parameters["@r"].Value = row.IsRead ? 1 : 0;
+                ins.Parameters["@pr"].Value = row.Priority;
                 ins.ExecuteNonQuery();
             }
 
@@ -167,7 +183,8 @@ public static class MessageCache
             using var cmd = conn.CreateCommand();
             cmd.CommandText =
                 "DELETE FROM Summaries WHERE AccountId = @a; DELETE FROM Folders WHERE AccountId = @a; " +
-                "DELETE FROM Favourites WHERE AccountId = @a; DELETE FROM Tags WHERE AccountId = @a;";
+                "DELETE FROM Favourites WHERE AccountId = @a; DELETE FROM Tags WHERE AccountId = @a; " +
+                "DELETE FROM Follows WHERE AccountId = @a;";
             cmd.Parameters.AddWithValue("@a", accountId);
             cmd.ExecuteNonQuery();
         }
@@ -255,7 +272,7 @@ public static class MessageCache
             using var conn = Open();
             using var cmd = conn.CreateCommand();
             cmd.CommandText =
-                "SELECT AccountId, Folder, Uid, FromName, FromAddr, Subject, Preview, DateTicks, HasAttachments " +
+                "SELECT AccountId, Folder, Uid, FromName, FromAddr, Subject, Preview, DateTicks, HasAttachments, Priority " +
                 "FROM Summaries WHERE IsRead = 0 ORDER BY DateTicks DESC LIMIT @lim";
             cmd.Parameters.AddWithValue("@lim", limit);
 
@@ -275,6 +292,7 @@ public static class MessageCache
                     Date = new DateTimeOffset(reader.GetInt64(7), TimeSpan.Zero),
                     HasAttachments = reader.GetInt64(8) != 0,
                     IsRead = false,
+                    Priority = (int)reader.GetInt64(9),
                 });
             }
 
@@ -299,11 +317,12 @@ public static class MessageCache
         Date = new DateTimeOffset(r.GetInt64(7), TimeSpan.Zero),
         HasAttachments = r.GetInt64(8) != 0,
         IsRead = r.GetInt64(9) != 0,
+        Priority = (int)r.GetInt64(10),
     };
 
     private const string FullRowColumns =
         "s.AccountId, s.Folder, s.Uid, s.FromName, s.FromAddr, s.Subject, s.Preview, " +
-        "s.DateTicks, s.HasAttachments, s.IsRead";
+        "s.DateTicks, s.HasAttachments, s.IsRead, s.Priority";
 
     /// Cross-account messages in every folder tagged with a SPECIAL-USE role ("inbox", "sent", …).
     public static List<MessageRow> LoadByRole(string role, int limit = 500)
@@ -425,6 +444,141 @@ public static class MessageCache
         catch (SqliteException ex)
         {
             LoggingService.Warn("MessageCache.LoadFavourites", ex);
+            return new List<MessageRow>();
+        }
+    }
+
+    // ----- follow-up flags -----
+
+    public static event EventHandler? FollowsChanged;
+
+    public sealed record FollowInfo(long DueTicks, string EventId, bool Done);
+
+    public static FollowInfo? FollowFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT DueTicks, EventId, Done FROM Follows WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            using var reader = cmd.ExecuteReader();
+            return reader.Read()
+                ? new FollowInfo(reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2) != 0)
+                : null;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.FollowFor", ex);
+            return null;
+        }
+    }
+
+    public static void SetFollow(string accountId, string folder, uint uid, long dueTicks, string eventId)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO Follows VALUES (@a, @f, @u, @d, @e, 0)";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.Parameters.AddWithValue("@d", dueTicks);
+            cmd.Parameters.AddWithValue("@e", eventId);
+            cmd.ExecuteNonQuery();
+            FollowsChanged?.Invoke(null, EventArgs.Empty);
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.SetFollow", ex);
+        }
+    }
+
+    public static void CompleteFollow(string accountId, string folder, uint uid, bool done = true)
+    {
+        RunFollowUpdate("UPDATE Follows SET Done=@done WHERE AccountId=@a AND Folder=@f AND Uid=@u",
+            accountId, folder, uid, done);
+    }
+
+    public static void RemoveFollow(string accountId, string folder, uint uid)
+    {
+        RunFollowUpdate("DELETE FROM Follows WHERE AccountId=@a AND Folder=@f AND Uid=@u",
+            accountId, folder, uid, false);
+    }
+
+    private static void RunFollowUpdate(string sql, string accountId, string folder, uint uid, bool done)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            if (sql.Contains("@done"))
+            {
+                cmd.Parameters.AddWithValue("@done", done ? 1 : 0);
+            }
+
+            cmd.ExecuteNonQuery();
+            FollowsChanged?.Invoke(null, EventArgs.Empty);
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.RunFollowUpdate", ex);
+        }
+    }
+
+    public static HashSet<string> FollowKeys()
+    {
+        var set = new HashSet<string>();
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT AccountId, Folder, Uid FROM Follows WHERE Done = 0";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                set.Add($"{reader.GetString(0)}|{reader.GetString(1)}|{reader.GetInt64(2)}");
+            }
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.FollowKeys", ex);
+        }
+
+        return set;
+    }
+
+    public static List<MessageRow> LoadFollowUps(int limit = 500)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                $"SELECT {FullRowColumns} FROM Follows w " +
+                "JOIN Summaries s ON s.AccountId=w.AccountId AND s.Folder=w.Folder AND s.Uid=w.Uid " +
+                "WHERE w.Done = 0 ORDER BY w.DueTicks LIMIT @lim";
+            cmd.Parameters.AddWithValue("@lim", limit);
+
+            var rows = new List<MessageRow>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(ReadFullRow(reader));
+            }
+
+            return rows;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.LoadFollowUps", ex);
             return new List<MessageRow>();
         }
     }
@@ -616,7 +770,7 @@ public static class MessageCache
             using var conn = Open();
             using var cmd = conn.CreateCommand();
             cmd.CommandText =
-                "SELECT Uid, FromName, FromAddr, Subject, Preview, DateTicks, HasAttachments, IsRead, Folder " +
+                "SELECT Uid, FromName, FromAddr, Subject, Preview, DateTicks, HasAttachments, IsRead, Folder, Priority " +
                 "FROM Summaries WHERE AccountId = @a AND " +
                 "(Subject LIKE @q OR FromName LIKE @q OR FromAddr LIKE @q OR Preview LIKE @q) " +
                 "ORDER BY DateTicks DESC LIMIT @lim";
@@ -640,6 +794,7 @@ public static class MessageCache
                     Date = new DateTimeOffset(reader.GetInt64(5), TimeSpan.Zero),
                     HasAttachments = reader.GetInt64(6) != 0,
                     IsRead = reader.GetInt64(7) != 0,
+                    Priority = (int)reader.GetInt64(9),
                 });
             }
 

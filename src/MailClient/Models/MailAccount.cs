@@ -20,4 +20,7 @@ public sealed class MailAccount
 
     /// DPAPI-encrypted, base64. Decrypt with SecretProtector.Unprotect.
     public string ProtectedPassword { get; set; } = string.Empty;
+
+    /// Plain-text signature appended when composing from this account.
+    public string Signature { get; set; } = string.Empty;
 }

@@ -38,6 +38,9 @@
 
             <TextBox x:Name="UsernameBox" Header="Username (if different from email)" />
 
+            <TextBox x:Name="SignatureBox" Header="Signature" AcceptsReturn="True" TextWrapping="Wrap"
+                     Height="90" PlaceholderText="Regards,&#x0a;Andrew" />
+
             <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="False" />
         </StackPanel>
     </ScrollViewer>

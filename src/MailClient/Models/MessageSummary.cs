@@ -16,11 +16,20 @@ public partial class MessageRow : ObservableObject
     public DateTimeOffset Date { get; init; }
     public bool HasAttachments { get; init; }
 
+    /// 2 = high, 1 = normal, 0 = low.
+    public int Priority { get; init; } = 1;
+
+    public bool IsHighPriority => Priority >= 2;
+    public bool IsLowPriority => Priority <= 0;
+
     [ObservableProperty]
     public partial bool IsRead { get; set; }
 
     [ObservableProperty]
     public partial bool IsFavourite { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsFlagged { get; set; }
 
     public string DateDisplay =>
         Date.LocalDateTime.Date == DateTime.Today ? Date.LocalDateTime.ToString("t")

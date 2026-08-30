@@ -2,14 +2,16 @@
 
 Not yet scheduled. Rough notes on scope so each can be picked up cold.
 
-## Signatures
-Per-account signature text (plain, later HTML). Store on `MailAccount`
-(`Signature`), edit in the Add/Edit Account dialog, append on New/Reply/Forward
-in `StartCompose` (above the quoted block).
-
-## Priority
-Read `MimeMessage.Priority` / `Importance` / `X-Priority` in `GetSummariesAsync`
-and `GetMessageContent`; persist on the summary row; show a marker in the list
-and reading pane. Let the composer set High/Normal/Low.
-
-
+## Fully-local AI processing
+Investigate the best way to run on-device (no cloud) LLM inference in the app,
+then use it for:
+- message summaries in the reading pane
+- suggested replies / "compose from prompt"
+- a weekly digest summary
+- a "Today" view summarising the day's events + flagged mail
+- smarter email parsing to extend the DateActionScanner (event/action
+  identification, calendar actions)
+Options to weigh: ONNX Runtime GenAI + a small quantised model (Phi-3-mini,
+Llama-3.2-1B/3B), llama.cpp via a native dep, or Windows AI APIs / Foundry
+Local. Consider model download/size, CPU vs NPU/GPU, and a graceful
+"AI features off" path.

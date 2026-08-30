@@ -86,6 +86,14 @@ public sealed partial class MainWindow : Window
             RefreshMessageTags();
         });
         MessageCache.FavouritesChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshFavouriteButton);
+        MessageCache.FollowsChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshFlagButton();
+            if (_vm.SmartView == "followups")
+            {
+                _ = _vm.RefreshAsync();
+            }
+        });
         CalendarStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             RefreshCalendarDay();
@@ -325,6 +333,142 @@ public sealed partial class MainWindow : Window
         FavouriteGlyph.Glyph = fav ? "" : "";
     }
 
+
+    private void RefreshFlagButton()
+    {
+        var open = _vm.CurrentOpenRow is { } row
+            ? MessageCache.FollowFor(row.AccountId, row.Folder, row.Uid)
+            : null;
+        FlagButton.Opacity = open is { Done: false } ? 1.0 : 0.65;
+        FlagGlyph.Foreground = open is { Done: false }
+            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"]
+            : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+    }
+
+    private void RefreshPriorityBadge()
+    {
+        var p = _vm.CurrentMessage?.Priority ?? 1;
+        if (p >= 2)
+        {
+            PriorityBadge.Text = "High priority";
+            PriorityBadge.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(255, 0xD1, 0x34, 0x38));
+            PriorityBadge.Visibility = Visibility.Visible;
+        }
+        else if (p <= 0)
+        {
+            PriorityBadge.Text = "Low priority";
+            PriorityBadge.Foreground =
+                (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
+            PriorityBadge.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            PriorityBadge.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void Flag_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentOpenRow is not { } row ||
+            (_vm.CurrentAccount ?? AccountStore.Find(row.AccountId)) is not { } account)
+        {
+            return;
+        }
+
+        var existing = MessageCache.FollowFor(row.AccountId, row.Folder, row.Uid);
+        if (existing is { Done: false })
+        {
+            var flyout = new MenuFlyout();
+            var complete = new MenuFlyoutItem { Text = "Mark complete" };
+            complete.Click += (_, _) => CompleteFollowUp(account, row, existing);
+            var remove = new MenuFlyoutItem { Text = "Remove flag" };
+            remove.Click += (_, _) => RemoveFollowUp(account, row, existing);
+            flyout.Items.Add(complete);
+            flyout.Items.Add(remove);
+            flyout.ShowAt(FlagButton);
+            return;
+        }
+
+        var picker = new CalendarDatePicker { Header = "Due date", Date = DateTimeOffset.Now.AddDays(1) };
+        var noteBox = new TextBox
+        {
+            Header = "Note (optional)",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Height = 60,
+        };
+        var panel = new StackPanel { Spacing = 10, Width = 300 };
+        panel.Children.Add(picker);
+        panel.Children.Add(noteBox);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Flag for follow-up",
+            Content = panel,
+            PrimaryButtonText = "Flag",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var due = picker.Date ?? DateTimeOffset.Now.AddDays(1);
+        var subject = _vm.CurrentMessage?.Subject ?? row.Subject;
+
+        var calEvent = new CalendarEvent
+        {
+            Date = due,
+            Title = string.IsNullOrWhiteSpace(subject) ? "Follow up" : $"Follow up: {subject}",
+            Notes = string.IsNullOrWhiteSpace(noteBox.Text) ? $"From {row.From}" : noteBox.Text.Trim(),
+            SourceAccountId = row.AccountId,
+            SourceFolder = row.Folder,
+            SourceUid = row.Uid,
+        };
+        CalendarStore.Add(calEvent);
+        MessageCache.SetFollow(row.AccountId, row.Folder, row.Uid, due.UtcTicks, calEvent.Id);
+        _ = Task.Run(() => MailService.SetFlaggedAsync(account, row.Folder, row.Uid, true, CancellationToken.None));
+
+        RefreshFlagButton();
+    }
+
+    private void CompleteFollowUp(MailAccount account, MessageRow row, MessageCache.FollowInfo follow)
+    {
+        MessageCache.CompleteFollow(row.AccountId, row.Folder, row.Uid);
+        CalendarStore.SetDone(follow.EventId, true);
+        _ = Task.Run(() => MailService.SetFlaggedAsync(account, row.Folder, row.Uid, false, CancellationToken.None));
+        RefreshFlagButton();
+    }
+
+    private void RemoveFollowUp(MailAccount account, MessageRow row, MessageCache.FollowInfo follow)
+    {
+        MessageCache.RemoveFollow(row.AccountId, row.Folder, row.Uid);
+        CalendarStore.Remove(follow.EventId);
+        _ = Task.Run(() => MailService.SetFlaggedAsync(account, row.Folder, row.Uid, false, CancellationToken.None));
+        RefreshFlagButton();
+    }
+
+    private void CalendarEventDone_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: string id } box)
+        {
+            return;
+        }
+
+        var done = box.IsChecked == true;
+        CalendarStore.SetDone(id, done);
+
+        if (CalendarStore.Find(id) is { SourceAccountId.Length: > 0 } ev)
+        {
+            MessageCache.CompleteFollow(ev.SourceAccountId, ev.SourceFolder, ev.SourceUid, done);
+        }
+    }
+
+
     // ----- rail tree -----
 
     private void BuildTree()
@@ -360,6 +504,7 @@ public sealed partial class MainWindow : Window
         smart.Children.Add(SmartChild("__unread__", "Unread Mail", ""));
         smart.Children.Add(SmartChild("__sent__", "Sent Items", ""));
         smart.Children.Add(SmartChild("__favourites__", "Favourites", ""));
+        smart.Children.Add(SmartChild("__followups__", "Follow Up", ""));
         smart.Children.Add(SmartChild("__tags__", "Tags", "", expanded: false));
         _railNodes.Add(smart);
         RefreshTagNodes();
@@ -579,6 +724,7 @@ public sealed partial class MainWindow : Window
                 case "__inbox__": await _vm.ShowRoleAsync("inbox", "Inbox"); break;
                 case "__sent__": await _vm.ShowRoleAsync("sent", "Sent Items"); break;
                 case "__favourites__": await _vm.ShowFavouritesAsync(); break;
+                case "__followups__": await _vm.ShowFollowUpsAsync(); break;
                 case { } f when f.StartsWith("__tag__:", StringComparison.Ordinal):
                     await _vm.ShowTagAsync(f["__tag__:".Length..]); break;
                 default: return;
@@ -699,7 +845,7 @@ public sealed partial class MainWindow : Window
 
         var today = DateTime.Today;
         var groups = CalendarStore.All
-            .Where(ev => ev.Date.LocalDateTime.Date >= today)
+            .Where(ev => !ev.Done && ev.Date.LocalDateTime.Date >= today)
             .OrderBy(ev => ev.Date)
             .GroupBy(ev => new DateTime(ev.Date.Year, ev.Date.Month, 1))
             .Select(g => new CalendarMonthGroup
@@ -829,6 +975,25 @@ public sealed partial class MainWindow : Window
             favItem.Click += (_, _) => _vm.SetFavourite(row, !fav);
             flyout.Items.Add(favItem);
 
+            var follow = MessageCache.FollowFor(row.AccountId, row.Folder, row.Uid);
+            if (follow is { Done: false } && AccountStore.Find(row.AccountId) is { } followAcc)
+            {
+                var done = new MenuFlyoutItem { Text = "Mark follow-up complete" };
+                done.Click += (_, _) => CompleteFollowUp(followAcc, row, follow);
+                flyout.Items.Add(done);
+            }
+            else
+            {
+                var flagItem = new MenuFlyoutItem { Text = "Flag for follow-up…" };
+                flagItem.Click += async (_, _) =>
+                {
+                    await _vm.OpenMessageAsync(row);
+                    await RenderCurrentMessageAsync();
+                    Flag_Click(FlagButton, new RoutedEventArgs());
+                };
+                flyout.Items.Add(flagItem);
+            }
+
             var addTag = new MenuFlyoutItem { Text = "Add tag…" };
             addTag.Click += async (_, _) => await AddTagToRowAsync(row);
             flyout.Items.Add(addTag);
@@ -933,6 +1098,8 @@ public sealed partial class MainWindow : Window
 
         RefreshMessageTags();
         RefreshFavouriteButton();
+        RefreshFlagButton();
+        RefreshPriorityBadge();
 
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
@@ -1308,9 +1475,11 @@ public sealed partial class MainWindow : Window
 
         ComposeStatus.IsOpen = false;
         ComposeSendButton.IsEnabled = true;
+        ComposePriority.SelectedIndex = 1;
         ComposeTo.Text = ComposeCc.Text = ComposeSubject.Text = string.Empty;
 
-        var body = "<p><br></p>";
+        var signature = BuildSignatureHtml(account.Signature);
+        var body = "<p><br></p>" + signature;
         if (_composeSource is { } src)
         {
             var header = mode == ComposeMode.Forward
@@ -1320,7 +1489,7 @@ public sealed partial class MainWindow : Window
                 : $"On {Esc(src.Date.LocalDateTime.ToString("f"))}, {Esc(src.FromDisplay)} wrote:<br>";
             var original = src.Html is { Length: > 0 } h ? InnerHtmlOnly(h)
                 : $"<pre>{Esc(src.PlainText ?? string.Empty)}</pre>";
-            body = $"<p><br></p><blockquote>{header}{original}</blockquote>";
+            body = $"<p><br></p>{signature}<p><br></p><blockquote>{header}{original}</blockquote>";
 
             switch (mode)
             {
@@ -1507,6 +1676,20 @@ public sealed partial class MainWindow : Window
 
         message.Body = builder.ToMessageBody();
 
+        switch (ComposePriority.SelectedIndex)
+        {
+            case 2:
+                message.Priority = MessagePriority.Urgent;
+                message.Importance = MessageImportance.High;
+                message.XPriority = XMessagePriority.High;
+                break;
+            case 0:
+                message.Priority = MessagePriority.NonUrgent;
+                message.Importance = MessageImportance.Low;
+                message.XPriority = XMessagePriority.Low;
+                break;
+        }
+
         if (_composeSource is { MessageId.Length: > 0 } src)
         {
             message.InReplyTo = src.MessageId;
@@ -1554,6 +1737,17 @@ public sealed partial class MainWindow : Window
         subject.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? subject : $"{prefix} {subject}";
 
     private static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? string.Empty);
+
+    private static string BuildSignatureHtml(string signature)
+    {
+        if (string.IsNullOrWhiteSpace(signature))
+        {
+            return string.Empty;
+        }
+
+        var lines = Esc(signature).Replace("\r\n", "\n").Replace("\n", "<br>");
+        return $"<div class=\"sig\">--<br>{lines}</div>";
+    }
 
     /// Strips the document scaffolding (doctype / html / head / body) so a full email's HTML can be
     /// nested inside a quote block.

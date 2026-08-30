@@ -146,6 +146,27 @@ public static class MailService
         }
     }
 
+    /// 2 = high, 1 = normal, 0 = low. Reads Importance, then X-Priority, then Priority.
+    private static int PriorityFromHeaders(HeaderList headers)
+    {
+        var importance = headers["Importance"]?.Trim().ToLowerInvariant();
+        if (importance == "high") return 2;
+        if (importance == "low") return 0;
+
+        var xPriority = headers["X-Priority"]?.TrimStart();
+        if (xPriority is { Length: > 0 })
+        {
+            if (xPriority[0] is '1' or '2') return 2;
+            if (xPriority[0] is '4' or '5') return 0;
+        }
+
+        var priority = headers["Priority"]?.Trim().ToLowerInvariant();
+        if (priority == "urgent") return 2;
+        if (priority == "non-urgent") return 0;
+
+        return 1;
+    }
+
     // ----- message list -----
 
     public static async Task<List<MessageRow>> GetSummariesAsync(MailAccount account, string folderFullName, CancellationToken ct)
@@ -161,7 +182,8 @@ public static class MailService
             }
 
             var start = Math.Max(0, count - SummaryFetchCount);
-            var summaries = await folder.FetchAsync(start, -1, SummaryItems, ct);
+            var summaries = await folder.FetchAsync(start, -1, SummaryItems,
+                new[] { "Importance", "Priority", "X-Priority" }, ct);
 
             return summaries
                 .OrderByDescending(s => s.Date)
@@ -179,6 +201,7 @@ public static class MailService
                     Date = s.Date,
                     HasAttachments = s.Attachments.Any(),
                     IsRead = s.Flags?.HasFlag(MessageFlags.Seen) ?? false,
+                    Priority = PriorityFromHeaders(s.Headers),
                 })
                 .ToList();
         }, ct);
@@ -223,6 +246,11 @@ public static class MailService
                 HadRemoteContent = hadRemote,
                 RemoteContentAllowed = allowRemote,
                 Attachments = attachments,
+                Priority = message.Importance == MessageImportance.High || message.Priority == MessagePriority.Urgent
+                    || message.XPriority is XMessagePriority.Highest or XMessagePriority.High ? 2
+                    : message.Importance == MessageImportance.Low || message.Priority == MessagePriority.NonUrgent
+                    || message.XPriority is XMessagePriority.Low or XMessagePriority.Lowest ? 0
+                    : 1,
                 MessageId = message.MessageId ?? string.Empty,
                 References = string.Join(" ", message.References),
             };
@@ -309,6 +337,25 @@ public static class MailService
             else
             {
                 await folder.RemoveFlagsAsync(ids, MessageFlags.Seen, true, ct);
+            }
+
+            return true;
+        }, ct);
+    }
+
+    public static async Task SetFlaggedAsync(MailAccount account, string folderFullName, uint uid, bool flagged, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadWrite, ct);
+            if (flagged)
+            {
+                await folder.AddFlagsAsync(new UniqueId(uid), MessageFlags.Flagged, true, ct);
+            }
+            else
+            {
+                await folder.RemoveFlagsAsync(new UniqueId(uid), MessageFlags.Flagged, true, ct);
             }
 
             return true;

@@ -35,6 +35,7 @@ public sealed partial class AddAccountDialog : ContentDialog
         SmtpPortBox.Value = existing.SmtpPort;
         SmtpSslBox.IsChecked = existing.SmtpUseSsl;
         UsernameBox.Text = existing.Username;
+        SignatureBox.Text = existing.Signature;
 
         PasswordBox.Header = "Password (leave blank to keep current)";
     }
@@ -103,6 +104,7 @@ public sealed partial class AddAccountDialog : ContentDialog
             DisplayName = DisplayNameBox.Text.Trim(),
             Email = EmailBox.Text.Trim(),
             Username = string.IsNullOrWhiteSpace(UsernameBox.Text) ? EmailBox.Text.Trim() : UsernameBox.Text.Trim(),
+            Signature = SignatureBox.Text,
             ImapHost = ImapHostBox.Text.Trim(),
             ImapPort = (int)ImapPortBox.Value,
             ImapUseSsl = ImapSslBox.IsChecked == true,
