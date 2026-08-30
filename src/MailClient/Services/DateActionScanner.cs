@@ -60,7 +60,7 @@ public static class DateActionScanner
             return null;
         }
 
-        return new CalendarSuggestion(date.Value, InferTitle(text.ToLowerInvariant(), subject, fromAddress));
+        return new CalendarSuggestion(date.Value, InferTitle(text.ToLowerInvariant(), subject ?? string.Empty, fromAddress));
     }
 
     private static string Normalise(string? subject, string? body)
@@ -200,39 +200,57 @@ public static class DateActionScanner
         return false;
     }
 
-    private static string InferTitle(string lower, string? subject, string? fromAddress)
+    // Ordered most-specific first. The generic "invoice" catch-all is applied last and only
+    // after both the subject and the body have been checked against every specific rule.
+    private static readonly (string[] Keys, string Title)[] TitleRules =
     {
-        (string[] keys, string title)[] rules =
-        {
-            (new[] { "electricity", "power bill", "energy", "kwh", "agl", "origin energy", "energyaustralia", "red energy" }, "Pay Electricity Bill"),
-            (new[] { "gas bill", "natural gas" }, "Pay Gas Bill"),
-            (new[] { "water bill", "sewer", "water usage", "water account" }, "Pay Water Bill"),
-            (new[] { "car registration", "vehicle registration", "rego", "registration renewal", "renew your registration", "cazr rego" }, "Pay Car Registration"),
-            (new[] { "council rates", "rates notice", "land rates" }, "Pay Council Rates"),
-            (new[] { "rent" }, "Pay Rent"),
-            (new[] { "body corporate", "strata levy", "strata levies", "owners corporation" }, "Pay Strata Levy"),
-            (new[] { "insurance", "premium is due", "policy renewal" }, "Pay Insurance"),
-            (new[] { "credit card", "card statement", "minimum payment" }, "Pay Credit Card"),
-            (new[] { "ato", "tax return", "tax is due", "activity statement", "bas statement" }, "Pay Tax / ATO"),
-            (new[] { "phone bill", "mobile bill", "telstra", "optus", "vodafone" }, "Pay Phone Bill"),
-            (new[] { "internet", "nbn", "broadband" }, "Pay Internet Bill"),
-            (new[] { "toll", "linkt", "e-tag", "etag" }, "Pay Tolls"),
-            (new[] { "subscription", "renew your", "auto-renew", "membership renewal" }, "Renew Subscription"),
-            (new[] { "appointment", "booking confirmation" }, "Appointment"),
-            (new[] { "rsvp", "please respond", "confirm your attendance" }, "RSVP"),
-            (new[] { "invoice", "amount due", "balance due", "statement", "payment due" }, "Pay Invoice"),
-        };
+        (new[] { "natural gas", "gas bill", "gas usage", "gas account", "gas supply", " gas " }, "Pay Gas Bill"),
+        (new[] { "electricity", "power bill", "kwh", "electricity usage", "electricity account" }, "Pay Electricity Bill"),
+        (new[] { "water bill", "sewer", "water usage", "water account" }, "Pay Water Bill"),
+        (new[] { "car registration", "vehicle registration", "rego", "registration renewal", "renew your registration" }, "Pay Car Registration"),
+        (new[] { "council rates", "rates notice", "land rates" }, "Pay Council Rates"),
+        (new[] { "body corporate", "strata levy", "strata levies", "owners corporation" }, "Pay Strata Levy"),
+        (new[] { "rent" }, "Pay Rent"),
+        (new[] { "insurance", "premium is due", "policy renewal" }, "Pay Insurance"),
+        (new[] { "credit card", "card statement", "minimum payment" }, "Pay Credit Card"),
+        (new[] { "ato", "tax return", "tax is due", "activity statement", "bas statement" }, "Pay Tax / ATO"),
+        (new[] { "phone bill", "mobile bill", "telstra", "optus", "vodafone" }, "Pay Phone Bill"),
+        (new[] { "internet", "nbn", "broadband" }, "Pay Internet Bill"),
+        (new[] { "toll", "linkt", "e-tag", "etag" }, "Pay Tolls"),
+        (new[] { "subscription", "auto-renew", "membership renewal" }, "Renew Subscription"),
+        (new[] { "appointment", "booking confirmation" }, "Appointment"),
+        (new[] { "rsvp", "confirm your attendance" }, "RSVP"),
+    };
 
-        foreach (var (keys, title) in rules)
+    private static string InferTitle(string lowerAll, string subject, string? fromAddress)
+    {
+        var lowerSubject = subject.ToLowerInvariant();
+
+        // The subject line is the strongest signal ("Your Origin Natural Gas Bill").
+        foreach (var (keys, title) in TitleRules)
         {
-            if (keys.Any(k => lower.Contains(k, StringComparison.Ordinal)))
+            if (keys.Any(k => lowerSubject.Contains(k, StringComparison.Ordinal)))
             {
-                var vendor = VendorName(fromAddress);
-                return title == "Pay Invoice" && vendor.Length > 0 ? $"Pay {vendor}" : title;
+                return title;
             }
         }
 
-        var subj = (subject ?? string.Empty).Trim();
+        foreach (var (keys, title) in TitleRules)
+        {
+            if (keys.Any(k => lowerAll.Contains(k, StringComparison.Ordinal)))
+            {
+                return title;
+            }
+        }
+
+        var vendor = VendorName(fromAddress);
+        if (new[] { "invoice", "amount due", "balance due", "statement", "payment due" }
+                .Any(k => lowerAll.Contains(k, StringComparison.Ordinal)))
+        {
+            return vendor.Length > 0 ? $"Pay {vendor}" : "Pay Invoice";
+        }
+
+        var subj = subject.Trim();
         return subj.Length > 0 ? $"Follow up: {Truncate(subj, 60)}" : "Follow up";
     }
 
