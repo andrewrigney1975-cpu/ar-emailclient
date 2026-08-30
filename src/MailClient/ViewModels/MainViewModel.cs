@@ -345,8 +345,29 @@ public sealed partial class MainViewModel : ObservableObject
 
     // ----- list grouping -----
 
+    // Expand/collapse state, keyed by StateKey, kept across list rebuilds (sync / poll) and,
+    // for date groups, across sessions via AppSettings.
+    private readonly Dictionary<string, bool> _groupExpanded = new();
+    private readonly Dictionary<string, bool> _threadExpanded = new();
+    private bool _groupStateLoaded;
+
+    private void LoadGroupState()
+    {
+        if (_groupStateLoaded)
+        {
+            return;
+        }
+
+        _groupStateLoaded = true;
+        foreach (var name in AppSettings.Current.CollapsedDateGroups)
+        {
+            _groupExpanded[name] = false;
+        }
+    }
+
     private void BuildListNodes()
     {
+        LoadGroupState();
         ListNodes.Clear();
 
         var buckets = _rows
@@ -355,36 +376,42 @@ public sealed partial class MainViewModel : ObservableObject
 
         foreach (var bucket in buckets)
         {
+            var groupKey = bucket.Key.Name;
             var groupNode = new MailListNode
             {
                 Kind = MailListKind.DateGroup,
-                Header = bucket.Key.Name,
+                Header = groupKey,
                 MessageCount = bucket.Count(),
-                IsExpanded = true,
+                StateKey = groupKey,
+                IsExpanded = !_groupExpanded.TryGetValue(groupKey, out var ge) || ge,
             };
+            groupNode.PropertyChanged += OnListNodeExpandedChanged;
 
             var threads = bucket
                 .GroupBy(NormaliseSubject)
-                .Select(g => g.OrderByDescending(r => r.Date).ToList())
-                .OrderByDescending(list => list[0].Date);
+                .Select(g => (Subject: g.Key, Rows: g.OrderByDescending(r => r.Date).ToList()))
+                .OrderByDescending(t => t.Rows[0].Date);
 
             foreach (var thread in threads)
             {
-                if (thread.Count == 1)
+                if (thread.Rows.Count == 1)
                 {
-                    groupNode.Children.Add(MessageNode(thread[0]));
+                    groupNode.Children.Add(MessageNode(thread.Rows[0]));
                     continue;
                 }
 
+                var threadKey = $"{groupKey}|{thread.Subject}";
                 var threadNode = new MailListNode
                 {
                     Kind = MailListKind.Thread,
-                    Header = string.IsNullOrWhiteSpace(thread[0].Subject) ? "(no subject)" : thread[0].Subject,
-                    MessageCount = thread.Count,
-                    IsExpanded = false,
+                    Header = string.IsNullOrWhiteSpace(thread.Rows[0].Subject) ? "(no subject)" : thread.Rows[0].Subject,
+                    MessageCount = thread.Rows.Count,
+                    StateKey = threadKey,
+                    IsExpanded = _threadExpanded.TryGetValue(threadKey, out var te) && te,
                 };
+                threadNode.PropertyChanged += OnListNodeExpandedChanged;
 
-                foreach (var row in thread)
+                foreach (var row in thread.Rows)
                 {
                     threadNode.Children.Add(MessageNode(row));
                 }
@@ -393,6 +420,26 @@ public sealed partial class MainViewModel : ObservableObject
             }
 
             ListNodes.Add(groupNode);
+        }
+    }
+
+    private void OnListNodeExpandedChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MailListNode.IsExpanded) ||
+            sender is not MailListNode node || node.StateKey.Length == 0)
+        {
+            return;
+        }
+
+        if (node.Kind == MailListKind.DateGroup)
+        {
+            _groupExpanded[node.StateKey] = node.IsExpanded;
+            AppSettings.Update(s => s.CollapsedDateGroups =
+                _groupExpanded.Where(kv => !kv.Value).Select(kv => kv.Key).ToList());
+        }
+        else if (node.Kind == MailListKind.Thread)
+        {
+            _threadExpanded[node.StateKey] = node.IsExpanded;
         }
     }
 

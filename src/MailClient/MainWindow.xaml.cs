@@ -103,6 +103,8 @@ public sealed partial class MainWindow : Window
             CheckEventReminders();
             StartPolling();
 
+            ContactStore.RefreshFromCache();
+
             _loaded = true;
             if (_pendingNotificationMail is { } pending)
             {
@@ -177,6 +179,7 @@ public sealed partial class MainWindow : Window
         {
             await _vm.RefreshAsync(quiet: true);
             CheckEventReminders();
+            ContactStore.RefreshFromCache();
         };
         _pollTimer.Start();
     }
@@ -772,6 +775,12 @@ public sealed partial class MainWindow : Window
         AttachmentsList.ItemsSource = msg.Attachments;
         AttachmentsBar.Visibility = msg.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
+        ContactStore.Record(msg.FromAddress, msg.FromDisplay.Split('<')[0].Trim());
+        foreach (var address in $"{msg.ToDisplay},{msg.CcDisplay}".Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            ContactStore.Record(address.Trim(), null);
+        }
+
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
         LoadImagesButton.Visibility =
@@ -1101,6 +1110,35 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private static readonly char[] RecipientSeparators = { ',', ';' };
+
+    private void RecipientBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            return;
+        }
+
+        var text = sender.Text ?? string.Empty;
+        var sep = text.LastIndexOfAny(RecipientSeparators);
+        var token = text[(sep + 1)..].Trim();
+        sender.ItemsSource = token.Length >= 2 ? ContactStore.Search(token) : null;
+    }
+
+    private void RecipientBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem?.ToString() is not { Length: > 0 } picked)
+        {
+            return;
+        }
+
+        var text = sender.Text ?? string.Empty;
+        var sep = text.LastIndexOfAny(RecipientSeparators);
+        var prefix = sep >= 0 ? text[..(sep + 1)].TrimEnd() + " " : string.Empty;
+        sender.Text = prefix + picked + ", ";
+        sender.ItemsSource = null;
+    }
+
     private async void StartCompose(ComposeMode mode, MailMessageContent? source)
     {
         var account = _vm.CurrentAccount ?? AccountStore.All.FirstOrDefault();
@@ -1264,12 +1302,19 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var cc = ParseAddresses(ComposeCc.Text).ToList();
+
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(
             string.IsNullOrWhiteSpace(account.DisplayName) ? account.Email : account.DisplayName, account.Email));
         message.To.AddRange(recipients);
-        message.Cc.AddRange(ParseAddresses(ComposeCc.Text));
+        message.Cc.AddRange(cc);
         message.Subject = ComposeSubject.Text;
+
+        foreach (var box in recipients.Concat(cc))
+        {
+            ContactStore.Record(box.Address, box.Name);
+        }
 
         var html = await GetComposeHtmlAsync();
         var builder = new BodyBuilder();

@@ -16,6 +16,10 @@ public partial class MailListNode : ObservableObject
 {
     public required MailListKind Kind { get; init; }
 
+    /// Stable key used to persist this node's expand/collapse state across list rebuilds:
+    /// the bucket name for a date group, "bucket|subject" for a thread.
+    public string StateKey { get; init; } = string.Empty;
+
     [ObservableProperty]
     public partial bool IsExpanded { get; set; } = true;
 

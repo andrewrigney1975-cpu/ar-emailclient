@@ -17,6 +17,9 @@ public sealed class AppSettingsData
 
     /// Calendar-event ids we've already shown a "1 day away" reminder toast for.
     public List<string> NotifiedReminderIds { get; set; } = new();
+
+    /// Date-group headers ("Today", "Last Week", …) the user has collapsed in the message list.
+    public List<string> CollapsedDateGroups { get; set; } = new();
 }
 
 public static class AppSettings

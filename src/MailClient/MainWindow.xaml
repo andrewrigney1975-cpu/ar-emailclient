@@ -341,9 +341,13 @@
                     <StackPanel Grid.Row="0" Padding="16,12,16,8" Spacing="8"
                                 BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <TextBlock x:Name="ComposeHeading" Text="New message" FontWeight="SemiBold" FontSize="14" />
-                        <TextBox x:Name="ComposeTo" Header="To"
-                                 PlaceholderText="recipient@example.com, another@example.com" />
-                        <TextBox x:Name="ComposeCc" Header="Cc" />
+                        <AutoSuggestBox x:Name="ComposeTo" Header="To"
+                                        PlaceholderText="recipient@example.com, another@example.com"
+                                        TextChanged="RecipientBox_TextChanged"
+                                        SuggestionChosen="RecipientBox_SuggestionChosen" />
+                        <AutoSuggestBox x:Name="ComposeCc" Header="Cc"
+                                        TextChanged="RecipientBox_TextChanged"
+                                        SuggestionChosen="RecipientBox_SuggestionChosen" />
                         <TextBox x:Name="ComposeSubject" Header="Subject" />
                     </StackPanel>
 

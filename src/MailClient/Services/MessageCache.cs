@@ -259,6 +259,33 @@ public static class MessageCache
         }
     }
 
+    /// Distinct sender address + name pairs seen across all cached summaries (for recipient
+    /// auto-complete).
+    public static List<(string Address, string Name)> KnownAddresses()
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT DISTINCT FromAddr, FromName FROM Summaries WHERE FromAddr IS NOT NULL AND FromAddr <> ''";
+
+            var list = new List<(string, string)>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                list.Add((reader.GetString(0), reader.IsDBNull(1) ? string.Empty : reader.GetString(1)));
+            }
+
+            return list;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.KnownAddresses", ex);
+            return new List<(string, string)>();
+        }
+    }
+
     // ----- search -----
 
     /// Substring search over cached summaries for an account, newest first.
