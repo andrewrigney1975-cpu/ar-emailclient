@@ -219,6 +219,46 @@ public static class MessageCache
         }
     }
 
+    /// Every unread cached message across all accounts and folders, newest first.
+    public static List<MessageRow> LoadUnread(int limit = 500)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT AccountId, Folder, Uid, FromName, FromAddr, Subject, Preview, DateTicks, HasAttachments " +
+                "FROM Summaries WHERE IsRead = 0 ORDER BY DateTicks DESC LIMIT @lim";
+            cmd.Parameters.AddWithValue("@lim", limit);
+
+            var rows = new List<MessageRow>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new MessageRow
+                {
+                    AccountId = reader.GetString(0),
+                    Folder = reader.GetString(1),
+                    Uid = (uint)reader.GetInt64(2),
+                    From = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    FromAddress = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    Subject = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+                    Preview = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
+                    Date = new DateTimeOffset(reader.GetInt64(7), TimeSpan.Zero),
+                    HasAttachments = reader.GetInt64(8) != 0,
+                    IsRead = false,
+                });
+            }
+
+            return rows;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.LoadUnread", ex);
+            return new List<MessageRow>();
+        }
+    }
+
     // ----- search -----
 
     /// Substring search over cached summaries for an account, newest first.

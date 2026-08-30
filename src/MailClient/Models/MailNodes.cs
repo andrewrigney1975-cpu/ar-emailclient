@@ -33,8 +33,14 @@ public partial class MailNode : ObservableObject
     /// Child folder nodes under an account row (empty for a folder row).
     public ObservableCollection<MailNode> Children { get; } = new();
 
+    /// Set for special rows (Smart Folders) to pin a specific icon.
+    public string? GlyphOverride { get; init; }
+
+    /// True for the "Smart Folders" quasi-account and its children.
+    public bool IsSmart { get; init; }
+
     // Segoe Fluent Icons codepoints.
-    public string Glyph => IsAccount ? "" : FolderGlyph();
+    public string Glyph => GlyphOverride ?? (IsAccount ? "" : FolderGlyph());
 
     private string FolderGlyph() => DisplayName.ToLowerInvariant() switch
     {

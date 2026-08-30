@@ -99,7 +99,27 @@ public sealed partial class MainWindow : Window
         var accounts = AccountStore.All;
 
         EmptyRailHint.Visibility = accounts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        MailTree.Visibility = accounts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        MailTree.Visibility = Visibility.Visible;
+
+        var smart = new MailNode
+        {
+            AccountId = "__smart__",
+            IsAccount = true,
+            IsSmart = true,
+            DisplayName = "Smart Folders",
+            GlyphOverride = "",
+            IsExpanded = true,
+        };
+        smart.Children.Add(new MailNode
+        {
+            AccountId = "__smart__",
+            IsAccount = false,
+            IsSmart = true,
+            FolderFullName = "__unread__",
+            DisplayName = "Unread Mail",
+            GlyphOverride = "",
+        });
+        _railNodes.Add(smart);
 
         foreach (var account in accounts)
         {
@@ -220,7 +240,7 @@ public sealed partial class MainWindow : Window
         var node = (e.OriginalSource as FrameworkElement)?.DataContext as MailNode
                    ?? FindNodeInParents(e.OriginalSource as DependencyObject);
 
-        if (node is not { IsAccount: true })
+        if (node is not { IsAccount: true } || node.IsSmart)
         {
             return;
         }
@@ -305,6 +325,17 @@ public sealed partial class MainWindow : Window
     {
         if (args.InvokedItem is not MailNode node)
         {
+            return;
+        }
+
+        if (node.IsSmart)
+        {
+            if (node.FolderFullName == "__unread__")
+            {
+                await _vm.ShowUnreadAsync();
+                await RenderCurrentMessageAsync();
+            }
+
             return;
         }
 
@@ -417,6 +448,21 @@ public sealed partial class MainWindow : Window
         CalendarDayEvents.ItemsSource = events;
         CalendarDayEmpty.Visibility = events.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
+        var today = DateTime.Today;
+        var groups = CalendarStore.All
+            .Where(ev => ev.Date.LocalDateTime.Date >= today)
+            .OrderBy(ev => ev.Date)
+            .GroupBy(ev => new DateTime(ev.Date.Year, ev.Date.Month, 1))
+            .Select(g => new CalendarMonthGroup
+            {
+                Header = g.Key.ToString("MMMM yyyy"),
+                Events = g.ToList(),
+            })
+            .ToList();
+
+        UpcomingEvents.ItemsSource = groups;
+        UpcomingEmpty.Visibility = groups.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
         // Nudge the day items so their event-density dots repaint.
         RailCalendar.SetDisplayDate(day);
     }
@@ -507,6 +553,69 @@ public sealed partial class MainWindow : Window
         // Date group / thread header: toggle its section.
         node.IsExpanded = !node.IsExpanded;
     }
+
+    private void MessageTree_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        var node = FindListNode(e.OriginalSource as DependencyObject);
+        if (node is null)
+        {
+            return;
+        }
+
+        var flyout = new MenuFlyout();
+
+        if (node is { Kind: MailListKind.Message, Row: { } row })
+        {
+            var read = new MenuFlyoutItem { Text = "Mark as read", IsEnabled = !row.IsRead };
+            read.Click += (_, _) => _vm.SetRead(row, true);
+            var unread = new MenuFlyoutItem { Text = "Mark as unread", IsEnabled = row.IsRead };
+            unread.Click += (_, _) => _vm.SetRead(row, false);
+            flyout.Items.Add(read);
+            flyout.Items.Add(unread);
+        }
+        else
+        {
+            var markGroup = new MenuFlyoutItem
+            {
+                Text = node.Kind == MailListKind.Thread ? "Mark conversation as read" : "Mark these as read",
+            };
+            markGroup.Click += (_, _) => MarkNodeRead(node);
+            flyout.Items.Add(markGroup);
+        }
+
+        var element = e.OriginalSource as FrameworkElement ?? MessageTree;
+        flyout.ShowAt(element, new FlyoutShowOptions { Position = e.GetPosition(element) });
+        e.Handled = true;
+    }
+
+    private static MailListNode? FindListNode(DependencyObject? start)
+    {
+        for (var d = start; d is not null; d = VisualTreeHelper.GetParent(d))
+        {
+            if (d is FrameworkElement { DataContext: MailListNode node })
+            {
+                return node;
+            }
+        }
+
+        return null;
+    }
+
+    private void MarkNodeRead(MailListNode node)
+    {
+        if (node.Kind == MailListKind.Message && node.Row is { } row)
+        {
+            _vm.SetRead(row, true);
+            return;
+        }
+
+        foreach (var child in node.Children.ToList())
+        {
+            MarkNodeRead(child);
+        }
+    }
+
+    private async void MarkAllRead_Click(object sender, RoutedEventArgs e) => await _vm.MarkAllReadAsync();
 
     private void AlwaysLoadImages_Click(object sender, RoutedEventArgs e)
     {

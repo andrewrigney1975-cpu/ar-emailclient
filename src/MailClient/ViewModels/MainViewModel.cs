@@ -44,6 +44,12 @@ public sealed partial class MainViewModel : ObservableObject
     public string CurrentFolder { get; private set; } = string.Empty;
     public MessageRow? CurrentOpenRow { get; private set; }
 
+    /// A cross-account smart view (e.g. "Unread Mail") rather than a real IMAP folder.
+    public string? SmartView { get; private set; }
+
+    private MailAccount? AccountFor(MessageRow row) =>
+        CurrentAccount ?? AccountStore.Find(row.AccountId);
+
     /// Loads a folder: cached rows first (instant), then the live IMAP fetch.
     /// <param name="quiet">Background poll - keep the existing list visible and don't show a spinner.</param>
     public async Task OpenFolderAsync(MailAccount account, string folderFullName, string title, bool quiet = false)
@@ -54,6 +60,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         CurrentAccount = account;
         CurrentFolder = folderFullName;
+        SmartView = null;
         FolderTitle = title;
         CurrentMessage = null;
         CurrentOpenRow = null;
@@ -111,7 +118,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public async Task OpenMessageAsync(MessageRow row, bool allowRemoteContent = false)
     {
-        if (CurrentAccount is null)
+        if (AccountFor(row) is null)
         {
             return;
         }
@@ -126,8 +133,14 @@ public sealed partial class MainViewModel : ObservableObject
 
         try
         {
+            var account = AccountFor(row);
+            if (account is null)
+            {
+                return;
+            }
+
             var content = await Task.Run(
-                () => MailService.GetMessageAsync(CurrentAccount, row.Folder, row.Uid, allowRemoteContent, ct), ct);
+                () => MailService.GetMessageAsync(account, row.Folder, row.Uid, allowRemoteContent, ct), ct);
             if (ct.IsCancellationRequested)
             {
                 return;
@@ -139,8 +152,8 @@ public sealed partial class MainViewModel : ObservableObject
             if (!row.IsRead)
             {
                 row.IsRead = true;
-                MessageCache.SetRead(CurrentAccount.Id, row.Folder, row.Uid, true);
-                _ = Task.Run(() => MailService.MarkReadAsync(CurrentAccount, row.Folder, row.Uid, true, CancellationToken.None));
+                MessageCache.SetRead(account.Id, row.Folder, row.Uid, true);
+                _ = Task.Run(() => MailService.MarkReadAsync(account, row.Folder, row.Uid, true, CancellationToken.None));
             }
         }
         catch (OperationCanceledException)
@@ -155,12 +168,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     public async Task DeleteAsync(MessageRow row)
     {
-        if (CurrentAccount is null)
+        if (AccountFor(row) is not { } account)
         {
             return;
         }
 
-        _rows.RemoveAll(r => r.Folder == row.Folder && r.Uid == row.Uid);
+        _rows.RemoveAll(r => r.AccountId == row.AccountId && r.Folder == row.Folder && r.Uid == row.Uid);
         BuildListNodes();
         if (ReferenceEquals(CurrentOpenRow, row))
         {
@@ -170,13 +183,102 @@ public sealed partial class MainViewModel : ObservableObject
 
         try
         {
-            await Task.Run(() => MailService.DeleteAsync(CurrentAccount, row.Folder, row.Uid, CancellationToken.None));
+            await Task.Run(() => MailService.DeleteAsync(account, row.Folder, row.Uid, CancellationToken.None));
         }
         catch (Exception ex)
         {
             LoggingService.Warn("MainViewModel.DeleteAsync", ex);
             StatusText = "Delete failed: " + ex.Message;
         }
+    }
+
+    /// Marks a single message read / unread everywhere (row, cache, server).
+    public void SetRead(MessageRow row, bool read)
+    {
+        if (row.IsRead == read || AccountFor(row) is not { } account)
+        {
+            return;
+        }
+
+        row.IsRead = read;
+        MessageCache.SetRead(account.Id, row.Folder, row.Uid, read);
+        _ = Task.Run(() => MailService.MarkReadAsync(account, row.Folder, row.Uid, read, CancellationToken.None));
+
+        if (SmartView == "unread")
+        {
+            _rows.RemoveAll(r => r.IsRead);
+            BuildListNodes();
+        }
+    }
+
+    /// Marks every message currently in the list as read.
+    public async Task MarkAllReadAsync()
+    {
+        var targets = _rows.Where(r => !r.IsRead).ToList();
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var row in targets)
+        {
+            row.IsRead = true;
+            if (AccountFor(row) is { } acc)
+            {
+                MessageCache.SetRead(acc.Id, row.Folder, row.Uid, true);
+            }
+        }
+
+        var groups = targets
+            .Select(r => (Account: AccountFor(r), r.Folder, r.Uid))
+            .Where(g => g.Account is not null)
+            .GroupBy(g => (g.Account!.Id, g.Folder));
+
+        foreach (var g in groups)
+        {
+            var account = g.First().Account!;
+            var folder = g.Key.Folder;
+            var uids = g.Select(x => x.Uid).ToList();
+            try
+            {
+                await Task.Run(() => MailService.MarkReadBulkAsync(account, folder, uids, true, CancellationToken.None));
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Warn("MainViewModel.MarkAllReadAsync", ex);
+            }
+        }
+
+        if (SmartView == "unread")
+        {
+            _rows.Clear();
+            BuildListNodes();
+        }
+
+        StatusText = "Marked all as read";
+    }
+
+    /// Cross-account view of every unread cached message.
+    public async Task ShowUnreadAsync()
+    {
+        _listCts.Cancel();
+        _listCts = new CancellationTokenSource();
+
+        CurrentAccount = null;
+        CurrentFolder = string.Empty;
+        SmartView = "unread";
+        CurrentMessage = null;
+        CurrentOpenRow = null;
+        IsBusy = true;
+        StatusText = "Loading unread…";
+
+        var rows = await Task.Run(() => MessageCache.LoadUnread());
+
+        _rows = rows;
+        BuildListNodes();
+        FolderTitle = "Unread Mail";
+        StatusText = $"{rows.Count} unread";
+        IsBusy = false;
     }
 
     /// Runs a cached-summary search for an account and shows the hits in the message list.
@@ -186,6 +288,7 @@ public sealed partial class MainViewModel : ObservableObject
         _listCts = new CancellationTokenSource();
 
         CurrentAccount = account;
+        SmartView = null;
         CurrentMessage = null;
         CurrentOpenRow = null;
         IsBusy = true;
@@ -207,6 +310,7 @@ public sealed partial class MainViewModel : ObservableObject
         _bodyCts.Cancel();
         CurrentAccount = null;
         CurrentFolder = string.Empty;
+        SmartView = null;
         CurrentOpenRow = null;
         _rows = new List<MessageRow>();
         ListNodes.Clear();
@@ -217,7 +321,8 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public Task RefreshAsync(bool quiet = false) =>
-        CurrentAccount is { } acc && CurrentFolder.Length > 0
+        SmartView == "unread" ? ShowUnreadAsync()
+        : CurrentAccount is { } acc && CurrentFolder.Length > 0
             ? OpenFolderAsync(acc, CurrentFolder, FolderTitle, quiet)
             : Task.CompletedTask;
 

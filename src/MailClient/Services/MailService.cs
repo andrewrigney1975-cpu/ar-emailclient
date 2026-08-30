@@ -264,6 +264,32 @@ public static class MailService
         }, ct);
     }
 
+    public static async Task MarkReadBulkAsync(
+        MailAccount account, string folderFullName, IReadOnlyList<uint> uids, bool read, CancellationToken ct)
+    {
+        if (uids.Count == 0)
+        {
+            return;
+        }
+
+        var ids = uids.Select(u => new UniqueId(u)).ToList();
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadWrite, ct);
+            if (read)
+            {
+                await folder.AddFlagsAsync(ids, MessageFlags.Seen, true, ct);
+            }
+            else
+            {
+                await folder.RemoveFlagsAsync(ids, MessageFlags.Seen, true, ct);
+            }
+
+            return true;
+        }, ct);
+    }
+
     public static async Task DeleteAsync(MailAccount account, string folderFullName, uint uid, CancellationToken ct)
     {
         var conn = ConnectionFor(account);
