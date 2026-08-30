@@ -17,7 +17,12 @@ public sealed class MailMessageContent
 
     public string? PlainText { get; init; }
 
+    /// The message references remote images/CSS.
     public bool HadRemoteContent { get; init; }
+
+    /// Remote content was actually loaded for this render (user opted in, or the sender's
+    /// domain is on the always-allow list).
+    public bool RemoteContentAllowed { get; init; }
 
     public IReadOnlyList<MailAttachmentInfo> Attachments { get; init; } = Array.Empty<MailAttachmentInfo>();
 

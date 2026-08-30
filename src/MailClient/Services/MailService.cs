@@ -169,8 +169,11 @@ public static class MailService
             var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadOnly, ct);
             var message = await folder.GetMessageAsync(new UniqueId(uid), ct);
 
+            var fromAddress = message.From.Mailboxes.FirstOrDefault()?.Address ?? string.Empty;
+            var allowRemote = allowRemoteContent || RemoteContentStore.IsAllowed(fromAddress);
+
             var (html, hadRemote) = message.HtmlBody is { } rawHtml
-                ? NeutraliseRemoteContent(rawHtml, allowRemoteContent)
+                ? NeutraliseRemoteContent(rawHtml, allowRemote)
                 : (null, false);
 
             var attachments = message.Attachments
@@ -184,15 +187,16 @@ public static class MailService
             {
                 Subject = message.Subject ?? string.Empty,
                 FromDisplay = string.Join(", ", message.From.Mailboxes.Select(m => m.Name is { Length: > 0 } ? $"{m.Name} <{m.Address}>" : m.Address)),
-                FromAddress = message.From.Mailboxes.FirstOrDefault()?.Address ?? string.Empty,
+                FromAddress = fromAddress,
                 ReplyToAddress = message.ReplyTo.Mailboxes.FirstOrDefault()?.Address
-                    ?? message.From.Mailboxes.FirstOrDefault()?.Address ?? string.Empty,
+                    ?? fromAddress,
                 ToDisplay = string.Join(", ", message.To.Mailboxes.Select(m => m.Address)),
                 CcDisplay = string.Join(", ", message.Cc.Mailboxes.Select(m => m.Address)),
                 Date = message.Date,
                 Html = html,
                 PlainText = message.TextBody,
                 HadRemoteContent = hadRemote,
+                RemoteContentAllowed = allowRemote,
                 Attachments = attachments,
                 MessageId = message.MessageId ?? string.Empty,
                 References = string.Join(" ", message.References),

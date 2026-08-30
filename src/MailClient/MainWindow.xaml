@@ -43,6 +43,8 @@
                 <ColumnDefinition x:Name="ListColumn" Width="380" MinWidth="280" MaxWidth="620" />
                 <ColumnDefinition Width="6" />
                 <ColumnDefinition Width="*" MinWidth="320" />
+                <ColumnDefinition x:Name="CalendarSplitterColumn" Width="0" />
+                <ColumnDefinition x:Name="CalendarColumn" Width="0" />
             </Grid.ColumnDefinitions>
 
             <!-- Activity bar -->
@@ -59,12 +61,26 @@
                         <FontIcon Glyph="&#xE70F;" FontSize="18" />
                     </Button>
                     <Button x:Name="RefreshButton" Style="{StaticResource ActivityBarButtonStyle}"
-                            Click="RefreshButton_Click" ToolTipService.ToolTip="Refresh"
+                            Click="RefreshButton_Click" ToolTipService.ToolTip="Refresh this folder"
                             AutomationProperties.Name="Refresh">
                         <FontIcon Glyph="&#xE72C;" FontSize="18" />
                     </Button>
+                    <Button x:Name="SyncButton" Style="{StaticResource ActivityBarButtonStyle}"
+                            Click="SyncButton_Click" ToolTipService.ToolTip="Sync all accounts"
+                            AutomationProperties.Name="Sync">
+                        <Grid>
+                            <FontIcon Glyph="&#xE895;" FontSize="18" />
+                            <ProgressRing x:Name="SyncRing" IsActive="False" Visibility="Collapsed"
+                                          Width="18" Height="18" />
+                        </Grid>
+                    </Button>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Spacing="4" Padding="4,8">
+                    <Button x:Name="CalendarToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
+                            Click="CalendarToggle_Click" ToolTipService.ToolTip="Show / hide calendar"
+                            AutomationProperties.Name="Toggle calendar">
+                        <FontIcon Glyph="&#xE787;" FontSize="18" />
+                    </Button>
                     <Button x:Name="AddAccountButton" Style="{StaticResource ActivityBarButtonStyle}"
                             Click="AddAccountButton_Click" ToolTipService.ToolTip="Add account"
                             AutomationProperties.Name="Add account">
@@ -126,11 +142,15 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <Grid Grid.Row="0" Padding="12,10" BorderThickness="0,0,0,1"
-                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <TextBlock Text="{Binding FolderTitle}" FontWeight="SemiBold" />
-                    <ProgressRing IsActive="{Binding IsBusy}" Width="16" Height="16" HorizontalAlignment="Right" />
-                </Grid>
+                <StackPanel Grid.Row="0" Padding="12,8" Spacing="6" BorderThickness="0,0,0,1"
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <Grid>
+                        <TextBlock Text="{Binding FolderTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <ProgressRing IsActive="{Binding IsBusy}" Width="16" Height="16" HorizontalAlignment="Right" />
+                    </Grid>
+                    <AutoSuggestBox x:Name="SearchBox" PlaceholderText="Search mail" QueryIcon="Find"
+                                    QuerySubmitted="SearchBox_QuerySubmitted" TextChanged="SearchBox_TextChanged" />
+                </StackPanel>
 
                 <ListView Grid.Row="1" x:Name="MessageList" ItemsSource="{Binding Messages}"
                           SelectedItem="{Binding SelectedMessage, Mode=TwoWay}"
@@ -213,12 +233,19 @@
                                 <FontIcon Glyph="&#xE74D;" FontSize="14" />
                             </Button>
                         </StackPanel>
-                        <Button x:Name="LoadImagesButton" HorizontalAlignment="Right" Click="LoadImages_Click"
-                                Visibility="Collapsed">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xEB9F;" FontSize="14" /><TextBlock Text="Load remote images" />
-                            </StackPanel>
-                        </Button>
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                            <Button x:Name="LoadImagesButton" Click="LoadImages_Click" Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xEB9F;" FontSize="14" /><TextBlock Text="Load remote images" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="AlwaysLoadImagesButton" Click="AlwaysLoadImages_Click" Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE72E;" FontSize="14" />
+                                    <TextBlock x:Name="AlwaysLoadImagesText" Text="Always load from this sender" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
                     </Grid>
 
                     <Grid Grid.Row="2">
@@ -248,6 +275,22 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </Grid>
+            </Grid>
+
+            <Rectangle Grid.Column="6" x:Name="CalendarSplitter" Width="6" HorizontalAlignment="Stretch"
+                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                       Visibility="Collapsed" />
+
+            <!-- Right rail: calendar -->
+            <Grid Grid.Column="7" x:Name="CalendarPane" Visibility="Collapsed"
+                  Background="{ThemeResource ControlFillColorDefaultBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Calendar" FontWeight="SemiBold" Margin="12,10,12,4" />
+                <CalendarView Grid.Row="1" x:Name="RailCalendar" Margin="8,4,8,8"
+                              VerticalAlignment="Top" HorizontalAlignment="Stretch" />
             </Grid>
         </Grid>
     </Grid>

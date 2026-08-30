@@ -170,6 +170,31 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// Runs a cached-summary search for an account and shows the hits in the message list.
+    public async Task SearchAsync(MailAccount account, string query)
+    {
+        _listCts.Cancel();
+        _listCts = new CancellationTokenSource();
+
+        CurrentAccount = account;
+        CurrentMessage = null;
+        SelectedMessage = null;
+        IsBusy = true;
+        StatusText = "Searching...";
+
+        var hits = await Task.Run(() => MessageCache.Search(account.Id, query));
+
+        Messages.Clear();
+        foreach (var row in hits)
+        {
+            Messages.Add(row);
+        }
+
+        FolderTitle = $"Search: “{query}”";
+        StatusText = $"{hits.Count} result(s)";
+        IsBusy = false;
+    }
+
     /// Clears the current folder/message view, e.g. after its account is removed.
     public void ClearView()
     {

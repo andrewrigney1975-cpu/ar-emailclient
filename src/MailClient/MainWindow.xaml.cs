@@ -38,6 +38,8 @@ public sealed partial class MainWindow : Window
         AccountStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(BuildTree);
         Closed += (_, _) => MailService.DisconnectAll();
 
+        ApplyCalendarVisibility(AppSettings.Current.CalendarVisible);
+
         RootGrid.Loaded += (_, _) => BuildTree();
     }
 
@@ -60,6 +62,20 @@ public sealed partial class MainWindow : Window
                 DisplayName = string.IsNullOrWhiteSpace(account.DisplayName) ? account.Email : account.DisplayName,
                 IsExpanded = true,
             };
+
+            // Show the last-known folder list instantly from the local cache, then refresh live.
+            foreach (var cached in MessageCache.LoadFolders(account.Id))
+            {
+                node.Children.Add(new MailNode
+                {
+                    AccountId = account.Id,
+                    IsAccount = false,
+                    FolderFullName = cached.FullName,
+                    DisplayName = cached.Name,
+                    UnreadCount = cached.Unread,
+                });
+            }
+
             _railNodes.Add(node);
             _ = LoadFoldersAsync(node);
         }
@@ -81,6 +97,9 @@ public sealed partial class MainWindow : Window
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
             var folders = await Task.Run(() => MailService.GetFoldersAsync(account, cts.Token), cts.Token)
                 .ConfigureAwait(false);
+
+            MessageCache.SaveFolders(account.Id,
+                folders.Select(f => new MessageCache.CachedFolder(f.FullName, f.Name, f.Unread)).ToList());
 
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -224,6 +243,73 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // ----- search -----
+
+    private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        var query = (sender.Text ?? string.Empty).Trim();
+        var account = _vm.CurrentAccount ?? AccountStore.All.FirstOrDefault();
+        if (account is null)
+        {
+            return;
+        }
+
+        if (query.Length == 0)
+        {
+            await _vm.RefreshAsync();
+            return;
+        }
+
+        await _vm.SearchAsync(account, query);
+    }
+
+    private async void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput && string.IsNullOrWhiteSpace(sender.Text))
+        {
+            await _vm.RefreshAsync();
+        }
+    }
+
+    // ----- sync / calendar -----
+
+    private async void SyncButton_Click(object sender, RoutedEventArgs e)
+    {
+        SyncRing.IsActive = true;
+        SyncRing.Visibility = Visibility.Visible;
+        SyncButton.IsEnabled = false;
+        try
+        {
+            foreach (var node in _railNodes.ToList())
+            {
+                await LoadFoldersAsync(node);
+            }
+
+            await _vm.RefreshAsync();
+        }
+        finally
+        {
+            SyncRing.IsActive = false;
+            SyncRing.Visibility = Visibility.Collapsed;
+            SyncButton.IsEnabled = true;
+        }
+    }
+
+    private void CalendarToggle_Click(object sender, RoutedEventArgs e)
+    {
+        var show = CalendarPane.Visibility != Visibility.Visible;
+        ApplyCalendarVisibility(show);
+        AppSettings.Update(s => s.CalendarVisible = show);
+    }
+
+    private void ApplyCalendarVisibility(bool visible)
+    {
+        CalendarPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        CalendarSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        CalendarSplitterColumn.Width = new GridLength(visible ? 6 : 0);
+        CalendarColumn.Width = visible ? new GridLength(300) : new GridLength(0);
+    }
+
     // ----- message list / reading -----
 
     private async void MessageList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -235,7 +321,16 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task RenderCurrentMessageAsync(bool remoteContent = false)
+    private void AlwaysLoadImages_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentMessage is { FromAddress.Length: > 0 } msg)
+        {
+            RemoteContentStore.Allow(msg.FromAddress);
+            AlwaysLoadImagesButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async Task RenderCurrentMessageAsync()
     {
         var msg = _vm.CurrentMessage;
         ReadingEmpty.Visibility = msg is null ? Visibility.Visible : Visibility.Collapsed;
@@ -251,7 +346,15 @@ public sealed partial class MainWindow : Window
 
         AttachmentsList.ItemsSource = msg.Attachments;
         AttachmentsList.Visibility = msg.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        LoadImagesButton.Visibility = msg.HadRemoteContent && !remoteContent ? Visibility.Visible : Visibility.Collapsed;
+
+        var domain = RemoteContentStore.DomainOf(msg.FromAddress);
+        var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
+        LoadImagesButton.Visibility =
+            msg.HadRemoteContent && !msg.RemoteContentAllowed ? Visibility.Visible : Visibility.Collapsed;
+        AlwaysLoadImagesButton.Visibility =
+            msg.HadRemoteContent && msg.RemoteContentAllowed && !domainAlreadyAllowed && domain.Length > 0
+                ? Visibility.Visible : Visibility.Collapsed;
+        AlwaysLoadImagesText.Text = $"Always load images from {domain}";
 
         if (msg.Html is { } html)
         {
@@ -293,7 +396,7 @@ public sealed partial class MainWindow : Window
         if (MessageList.SelectedItem is MessageRow row)
         {
             await _vm.OpenMessageAsync(row, allowRemoteContent: true);
-            await RenderCurrentMessageAsync(remoteContent: true);
+            await RenderCurrentMessageAsync();
         }
     }
 

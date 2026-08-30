@@ -44,6 +44,7 @@
     <PropertyGroup>
       <_BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</_BuildNumberFile>
     </PropertyGroup>
+    <WriteLinesToFile Condition="!Exists('$(_BuildNumberFile)')" File="$(_BuildNumberFile)" Lines="0" Overwrite="true" />
     <ReadLinesFromFile File="$(_BuildNumberFile)">
       <Output TaskParameter="Lines" ItemName="_BuildNumberLines" />
     </ReadLinesFromFile>
