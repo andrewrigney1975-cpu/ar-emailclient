@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Text.Json;
 using MailClient.Helpers;
 using MailClient.Models;
 using MailClient.Services;
@@ -30,6 +32,9 @@ public sealed partial class MainWindow : Window
 
     private MailAccount? _composeAccount;
     private MailMessageContent? _composeSource;
+    private readonly ObservableCollection<OutgoingAttachment> _composeAttachments = new();
+    private bool _composeEditorReady;
+    private string _pendingEditorHtml = string.Empty;
     private bool _restoredLastFolder;
     private CalendarSuggestion? _currentSuggestion;
     private DispatcherTimer? _pollTimer;
@@ -45,6 +50,12 @@ public sealed partial class MainWindow : Window
 
         MailTree.ItemsSource = _railNodes;
         MessageTree.ItemsSource = _vm.ListNodes;
+        ComposeAttachmentsList.ItemsSource = _composeAttachments;
+        ComposeEditor.NavigationCompleted += (_, _) =>
+        {
+            _composeEditorReady = true;
+            _ = SetComposeHtmlAsync(_pendingEditorHtml);
+        };
 
         Title = $"WinUI3 Mail — build {BuildInfo.Number}";
         AppTitleText.Text = $"WinUI3 Mail  ·  build {BuildInfo.Number}";
@@ -1011,7 +1022,86 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
     }
 
-    private void StartCompose(ComposeMode mode, MailMessageContent? source)
+    private const string EditorPage = """
+        <!doctype html><html><head><meta charset="utf-8">
+        <style>
+          html,body{height:100%;margin:0}
+          body{font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;padding:12px;
+               box-sizing:border-box;outline:none;overflow-wrap:anywhere}
+          img{max-width:100%;height:auto}
+          blockquote{border-left:2px solid #ccc;margin:0 0 0 8px;padding-left:10px;color:#777}
+          @media (prefers-color-scheme: dark){body{background:#1b1b1b;color:#e6e6e6}}
+        </style></head>
+        <body contenteditable="true"></body>
+        <script>
+          function setBody(h){ document.body.innerHTML = h; }
+          function getBody(){ return document.body.innerHTML; }
+          function exec(c,v){ document.execCommand(c,false,v||null); document.body.focus(); }
+          function insertImage(d){ document.execCommand('insertImage',false,d); }
+          function insertLink(u){ document.execCommand('createLink',false,u); }
+          document.addEventListener('paste', function(e){
+            var items=(e.clipboardData||window.clipboardData).items;
+            for(var i=0;i<items.length;i++){
+              if(items[i].type.indexOf('image')===0){
+                var f=items[i].getAsFile(); var r=new FileReader();
+                r.onload=function(){ insertImage(r.result); };
+                r.readAsDataURL(f); e.preventDefault();
+              }
+            }
+          });
+        </script></html>
+        """;
+
+    private async Task EnsureComposeEditorAsync()
+    {
+        try
+        {
+            await ComposeEditor.EnsureCoreWebView2Async();
+            ComposeEditor.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            if (!_composeEditorReady)
+            {
+                ComposeEditor.NavigateToString(EditorPage);
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.EnsureComposeEditorAsync", ex);
+        }
+    }
+
+    private async Task SetComposeHtmlAsync(string html)
+    {
+        if (!_composeEditorReady)
+        {
+            _pendingEditorHtml = html;
+            return;
+        }
+
+        try
+        {
+            await ComposeEditor.ExecuteScriptAsync($"setBody({JsonSerializer.Serialize(html)})");
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.SetComposeHtmlAsync", ex);
+        }
+    }
+
+    private async Task<string> GetComposeHtmlAsync()
+    {
+        try
+        {
+            var raw = await ComposeEditor.ExecuteScriptAsync("getBody()");
+            return JsonSerializer.Deserialize<string>(raw) ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.GetComposeHtmlAsync", ex);
+            return string.Empty;
+        }
+    }
+
+    private async void StartCompose(ComposeMode mode, MailMessageContent? source)
     {
         var account = _vm.CurrentAccount ?? AccountStore.All.FirstOrDefault();
         if (account is null)
@@ -1022,36 +1112,38 @@ public sealed partial class MainWindow : Window
 
         _composeAccount = account;
         _composeSource = mode == ComposeMode.New ? null : source;
+        _composeAttachments.Clear();
+        ComposeAttachmentsList.Visibility = Visibility.Collapsed;
 
         ComposeStatus.IsOpen = false;
         ComposeSendButton.IsEnabled = true;
-        ComposeTo.Text = ComposeCc.Text = ComposeSubject.Text = ComposeBody.Text = string.Empty;
+        ComposeTo.Text = ComposeCc.Text = ComposeSubject.Text = string.Empty;
 
+        var body = "<p><br></p>";
         if (_composeSource is { } src)
         {
-            var quoted = string.Join("\n", (src.PlainText ?? StripHtml(src.Html) ?? string.Empty)
-                .Split('\n').Select(l => "> " + l));
-            var replyBody = $"\n\nOn {src.Date.LocalDateTime:f}, {src.FromDisplay} wrote:\n{quoted}\n";
+            var header = mode == ComposeMode.Forward
+                ? $"---------- Forwarded message ----------<br>From: {Esc(src.FromDisplay)}<br>" +
+                  $"Date: {Esc(src.Date.LocalDateTime.ToString("f"))}<br>Subject: {Esc(src.Subject)}<br>" +
+                  $"To: {Esc(src.ToDisplay)}<br><br>"
+                : $"On {Esc(src.Date.LocalDateTime.ToString("f"))}, {Esc(src.FromDisplay)} wrote:<br>";
+            var original = src.Html is { Length: > 0 } h ? InnerHtmlOnly(h)
+                : $"<pre>{Esc(src.PlainText ?? string.Empty)}</pre>";
+            body = $"<p><br></p><blockquote>{header}{original}</blockquote>";
 
             switch (mode)
             {
                 case ComposeMode.Reply:
                     ComposeTo.Text = src.ReplyToAddress;
                     ComposeSubject.Text = Prefixed("Re:", src.Subject);
-                    ComposeBody.Text = replyBody;
                     break;
                 case ComposeMode.ReplyAll:
                     ComposeTo.Text = src.ReplyToAddress;
                     ComposeCc.Text = src.CcDisplay;
                     ComposeSubject.Text = Prefixed("Re:", src.Subject);
-                    ComposeBody.Text = replyBody;
                     break;
                 case ComposeMode.Forward:
                     ComposeSubject.Text = Prefixed("Fwd:", src.Subject);
-                    ComposeBody.Text =
-                        $"\n\n---------- Forwarded message ----------\nFrom: {src.FromDisplay}\n" +
-                        $"Date: {src.Date.LocalDateTime:f}\nSubject: {src.Subject}\nTo: {src.ToDisplay}\n\n" +
-                        (src.PlainText ?? StripHtml(src.Html) ?? string.Empty);
                     break;
             }
         }
@@ -1064,7 +1156,93 @@ public sealed partial class MainWindow : Window
         };
 
         ShowReading(ReadingMode.Compose);
+        await EnsureComposeEditorAsync();
+        await SetComposeHtmlAsync(body);
         ComposeTo.Focus(FocusState.Programmatic);
+    }
+
+    private async void ComposeCmd_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string cmd })
+        {
+            await ComposeEditor.ExecuteScriptAsync($"exec({JsonSerializer.Serialize(cmd)})");
+        }
+    }
+
+    private async void ComposeLink_Click(object sender, RoutedEventArgs e)
+    {
+        var box = new TextBox { Header = "Link URL", PlaceholderText = "https://example.com", Width = 320 };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Insert link",
+            Content = box,
+            PrimaryButtonText = "Insert",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(box.Text))
+        {
+            await ComposeEditor.ExecuteScriptAsync($"insertLink({JsonSerializer.Serialize(box.Text.Trim())})");
+        }
+    }
+
+    private async void ComposeInsertImage_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+        foreach (var ext in new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" })
+        {
+            picker.FileTypeFilter.Add(ext);
+        }
+
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        var buffer = await FileIO.ReadBufferAsync(file);
+        var bytes = buffer.ToArray();
+        var mime = string.IsNullOrEmpty(file.ContentType) ? "image/png" : file.ContentType;
+        var dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+        await ComposeEditor.ExecuteScriptAsync($"insertImage({JsonSerializer.Serialize(dataUrl)})");
+    }
+
+    private async void ComposeAttach_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+        var files = await picker.PickMultipleFilesAsync();
+        foreach (var file in files)
+        {
+            var buffer = await FileIO.ReadBufferAsync(file);
+            _composeAttachments.Add(new OutgoingAttachment
+            {
+                Name = file.Name,
+                Data = buffer.ToArray(),
+                ContentType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType,
+            });
+        }
+
+        ComposeAttachmentsList.Visibility = _composeAttachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ComposeAttachmentRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string name })
+        {
+            var match = _composeAttachments.FirstOrDefault(a => a.Name == name);
+            if (match is not null)
+            {
+                _composeAttachments.Remove(match);
+            }
+
+            ComposeAttachmentsList.Visibility = _composeAttachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     private void ComposeDiscard_Click(object sender, RoutedEventArgs e) =>
@@ -1092,7 +1270,44 @@ public sealed partial class MainWindow : Window
         message.To.AddRange(recipients);
         message.Cc.AddRange(ParseAddresses(ComposeCc.Text));
         message.Subject = ComposeSubject.Text;
-        message.Body = new TextPart("plain") { Text = ComposeBody.Text };
+
+        var html = await GetComposeHtmlAsync();
+        var builder = new BodyBuilder();
+
+        // Pull inline data: images out into linked resources so the sent mail isn't a data-URI blob.
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html,
+            @"<img\b[^>]*?\bsrc\s*=\s*""data:(?<mime>[^;]+);base64,(?<data>[^""]+)""[^>]*>",
+            m =>
+            {
+                try
+                {
+                    var bytes = Convert.FromBase64String(m.Groups["data"].Value);
+                    var cid = Guid.NewGuid().ToString("N");
+                    var ext = m.Groups["mime"].Value.Split('/').LastOrDefault() ?? "png";
+                    var resource = builder.LinkedResources.Add($"{cid}.{ext}", bytes,
+                        ContentType.Parse(m.Groups["mime"].Value));
+                    resource.ContentId = cid;
+                    return $"<img src=\"cid:{cid}\" style=\"max-width:100%\">";
+                }
+                catch
+                {
+                    return string.Empty;
+                }
+            },
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        builder.HtmlBody = $"<html><body>{html}</body></html>";
+        builder.TextBody = System.Text.RegularExpressions.Regex.Replace(
+            System.Net.WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ")),
+            @"\s+\n", "\n").Trim();
+
+        foreach (var attachment in _composeAttachments)
+        {
+            builder.Attachments.Add(attachment.Name, attachment.Data, ContentType.Parse(attachment.ContentType));
+        }
+
+        message.Body = builder.ToMessageBody();
 
         if (_composeSource is { MessageId.Length: > 0 } src)
         {
@@ -1113,6 +1328,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await Task.Run(() => MailService.SendAsync(account, message, CancellationToken.None));
+            _composeAttachments.Clear();
             ShowReading(_vm.HasMessage ? ReadingMode.Message : ReadingMode.Empty);
         }
         catch (Exception ex)
@@ -1139,8 +1355,17 @@ public sealed partial class MainWindow : Window
     private static string Prefixed(string prefix, string subject) =>
         subject.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? subject : $"{prefix} {subject}";
 
-    private static string? StripHtml(string? html) =>
-        html is null ? null : System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", string.Empty);
+    private static string Esc(string? s) => System.Net.WebUtility.HtmlEncode(s ?? string.Empty);
+
+    /// Strips the document scaffolding (doctype / html / head / body) so a full email's HTML can be
+    /// nested inside a quote block.
+    private static string InnerHtmlOnly(string html)
+    {
+        html = System.Text.RegularExpressions.Regex.Replace(html,
+            @"<!doctype[^>]*>|</?html[^>]*>|<head[\s\S]*?</head>|</?body[^>]*>",
+            string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return html.Trim();
+    }
 
     private async Task ShowErrorAsync(string title, string message)
     {

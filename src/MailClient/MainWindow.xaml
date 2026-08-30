@@ -332,6 +332,8 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
@@ -347,11 +349,74 @@
 
                     <InfoBar Grid.Row="1" x:Name="ComposeStatus" IsOpen="False" IsClosable="False" Margin="16,8,16,0" />
 
-                    <TextBox Grid.Row="2" x:Name="ComposeBody" Margin="16,8" AcceptsReturn="True" TextWrapping="Wrap"
-                             VerticalAlignment="Stretch" VerticalContentAlignment="Top"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto" PlaceholderText="Write your message..." />
+                    <!-- Formatting toolbar -->
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="2" Padding="14,6"
+                                BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <Button Tag="bold" Click="ComposeCmd_Click" ToolTipService.ToolTip="Bold"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xE8DD;" FontSize="14" />
+                        </Button>
+                        <Button Tag="italic" Click="ComposeCmd_Click" ToolTipService.ToolTip="Italic"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xE8DB;" FontSize="14" />
+                        </Button>
+                        <Button Tag="underline" Click="ComposeCmd_Click" ToolTipService.ToolTip="Underline"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xE8DC;" FontSize="14" />
+                        </Button>
+                        <Rectangle Width="1" Margin="4,2" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                        <Button Tag="insertUnorderedList" Click="ComposeCmd_Click" ToolTipService.ToolTip="Bulleted list"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xE8FD;" FontSize="14" />
+                        </Button>
+                        <Button Tag="insertOrderedList" Click="ComposeCmd_Click" ToolTipService.ToolTip="Numbered list"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xF0E4;" FontSize="14" />
+                        </Button>
+                        <Rectangle Width="1" Margin="4,2" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                        <Button Click="ComposeLink_Click" ToolTipService.ToolTip="Insert link"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xE71B;" FontSize="14" />
+                        </Button>
+                        <Button Click="ComposeInsertImage_Click" ToolTipService.ToolTip="Insert image"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xEB9F;" FontSize="14" />
+                        </Button>
+                        <Button Click="ComposeAttach_Click" ToolTipService.ToolTip="Attach file"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xE723;" FontSize="14" />
+                        </Button>
+                        <Button Tag="removeFormat" Click="ComposeCmd_Click" ToolTipService.ToolTip="Clear formatting"
+                                Padding="6" Background="Transparent" BorderThickness="0">
+                            <FontIcon Glyph="&#xE75C;" FontSize="14" />
+                        </Button>
+                    </StackPanel>
 
-                    <Grid Grid.Row="3" Padding="16,10" BorderThickness="0,1,0,0"
+                    <ItemsControl Grid.Row="3" x:Name="ComposeAttachmentsList" Padding="14,4" Visibility="Collapsed">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4"
+                                        Padding="8,3">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE723;" FontSize="11" />
+                                        <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" />
+                                        <Button Padding="2" Background="Transparent" BorderThickness="0"
+                                                Tag="{Binding Name}" Click="ComposeAttachmentRemove_Click"
+                                                ToolTipService.ToolTip="Remove">
+                                            <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <WebView2 Grid.Row="4" x:Name="ComposeEditor" Margin="0,4,0,0" />
+
+                    <Grid Grid.Row="5" Padding="16,10" BorderThickness="0,1,0,0"
                           BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                             <Button Content="Discard" Click="ComposeDiscard_Click" />

@@ -12,11 +12,6 @@ Needs: per-account special-folder resolution (MailService already resolves Trash
 via `SpecialFolder`), a `FavouritesStore`, and cross-account cache queries in
 `MessageCache` (see `LoadUnread`).
 
-## HTML-formatted emails
-Compose is plain text only. Add a rich editor (RichEditBox) in the reading-pane
-composer, send `multipart/alternative` (plain + HTML) via MimeKit
-`BodyBuilder`. Quoting on reply/forward should wrap the original HTML.
-
 ## Signatures
 Per-account signature text (plain, later HTML). Store on `MailAccount`
 (`Signature`), edit in the Add/Edit Account dialog, append on New/Reply/Forward
