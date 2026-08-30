@@ -10,6 +10,13 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using MimeKit;
+using Windows.Storage;
+using Windows.Storage.Pickers;
+using Windows.System;
+using IoPath = System.IO.Path;
+using IoFile = System.IO.File;
+using IoDirectory = System.IO.Directory;
 
 namespace MailClient;
 
@@ -18,19 +25,24 @@ public sealed partial class MainWindow : Window
     private readonly MainViewModel _vm;
     private readonly ObservableCollection<MailNode> _railNodes = new();
 
+    private MailAccount? _composeAccount;
+    private MailMessageContent? _composeSource;
+    private bool _restoredLastFolder;
+
     public MainWindow()
     {
         InitializeComponent();
 
+        _vm = new MainViewModel(DispatcherQueue);
+        RootGrid.DataContext = _vm;
+
         MailTree.ItemsSource = _railNodes;
+        MessageTree.ItemsSource = _vm.ListNodes;
 
         Title = $"WinUI3 Mail — build {BuildInfo.Number}";
         AppTitleText.Text = $"WinUI3 Mail  ·  build {BuildInfo.Number}";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-
-        _vm = new MainViewModel(DispatcherQueue);
-        RootGrid.DataContext = _vm;
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 200, max: 460);
         _ = new ColumnSplitterController(ReadingSplitter, ListColumn, invert: false, min: 280, max: 620);
@@ -120,6 +132,8 @@ public sealed partial class MainWindow : Window
                 node.IsConnecting = false;
                 LoggingService.Info("MainWindow.LoadFoldersAsync",
                     $"rendered {node.Children.Count} folder node(s) for {account.Email}");
+
+                TryRestoreLastFolder(account, node);
             });
         }
         catch (Exception ex)
@@ -136,6 +150,29 @@ public sealed partial class MainWindow : Window
                 _ = ShowErrorAsync($"Couldn't connect to {account.Email}", message);
             });
         }
+    }
+
+    private void TryRestoreLastFolder(MailAccount account, MailNode accountNode)
+    {
+        if (_restoredLastFolder || _vm.CurrentFolder.Length > 0)
+        {
+            return;
+        }
+
+        var settings = AppSettings.Current;
+        if (settings.LastAccountId != account.Id || settings.LastFolder.Length == 0)
+        {
+            return;
+        }
+
+        var folder = accountNode.Children.FirstOrDefault(c => c.FolderFullName == settings.LastFolder);
+        if (folder is null)
+        {
+            return;
+        }
+
+        _restoredLastFolder = true;
+        _ = _vm.OpenFolderAsync(account, folder.FolderFullName, folder.DisplayName);
     }
 
     private void MailTree_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -307,18 +344,36 @@ public sealed partial class MainWindow : Window
         CalendarPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         CalendarSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         CalendarSplitterColumn.Width = new GridLength(visible ? 6 : 0);
-        CalendarColumn.Width = visible ? new GridLength(300) : new GridLength(0);
+        CalendarColumn.Width = visible ? new GridLength(336) : new GridLength(0);
     }
 
     // ----- message list / reading -----
 
-    private async void MessageList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private enum ReadingMode { Empty, Message, Compose }
+
+    private void ShowReading(ReadingMode mode)
     {
-        if (MessageList.SelectedItem is MessageRow row)
+        ReadingEmpty.Visibility = mode == ReadingMode.Empty ? Visibility.Visible : Visibility.Collapsed;
+        ReadingContent.Visibility = mode == ReadingMode.Message ? Visibility.Visible : Visibility.Collapsed;
+        ReadingCompose.Visibility = mode == ReadingMode.Compose ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void MessageTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItem is not MailListNode node)
+        {
+            return;
+        }
+
+        if (node.Kind == MailListKind.Message && node.Row is { } row)
         {
             await _vm.OpenMessageAsync(row);
             await RenderCurrentMessageAsync();
+            return;
         }
+
+        // Date group / thread header: toggle its section.
+        node.IsExpanded = !node.IsExpanded;
     }
 
     private void AlwaysLoadImages_Click(object sender, RoutedEventArgs e)
@@ -333,11 +388,17 @@ public sealed partial class MainWindow : Window
     private async Task RenderCurrentMessageAsync()
     {
         var msg = _vm.CurrentMessage;
-        ReadingEmpty.Visibility = msg is null ? Visibility.Visible : Visibility.Collapsed;
         if (msg is null)
         {
+            if (ReadingCompose.Visibility != Visibility.Visible)
+            {
+                ShowReading(ReadingMode.Empty);
+            }
+
             return;
         }
+
+        ShowReading(ReadingMode.Message);
 
         SubjectText.Text = string.IsNullOrWhiteSpace(msg.Subject) ? "(no subject)" : msg.Subject;
         FromText.Text = "From: " + msg.FromDisplay;
@@ -345,7 +406,7 @@ public sealed partial class MainWindow : Window
         DateText.Text = msg.Date.LocalDateTime.ToString("f");
 
         AttachmentsList.ItemsSource = msg.Attachments;
-        AttachmentsList.Visibility = msg.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        AttachmentsBar.Visibility = msg.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
@@ -393,26 +454,101 @@ public sealed partial class MainWindow : Window
 
     private async void LoadImages_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageList.SelectedItem is MessageRow row)
+        if (_vm.CurrentOpenRow is { } row)
         {
             await _vm.OpenMessageAsync(row, allowRemoteContent: true);
             await RenderCurrentMessageAsync();
         }
     }
 
-    // ----- toolbar -----
+    // ----- attachments -----
 
-    private void ComposeButton_Click(object sender, RoutedEventArgs e) => OpenCompose(ComposeMode.New, null);
+    private async void AttachmentPreview_Click(object sender, RoutedEventArgs e)
+    {
+        var (name, data) = await FetchAttachmentAsync(sender);
+        if (data is null)
+        {
+            return;
+        }
 
-    private void Reply_Click(object sender, RoutedEventArgs e) => OpenCompose(ComposeMode.Reply, _vm.CurrentMessage);
+        try
+        {
+            var path = IoPath.Combine(IoPath.GetTempPath(), "WinUI3Mail", name!);
+            IoDirectory.CreateDirectory(IoPath.GetDirectoryName(path)!);
+            await IoFile.WriteAllBytesAsync(path, data);
+            await Launcher.LaunchFileAsync(await StorageFile.GetFileFromPathAsync(path));
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.AttachmentPreview_Click", ex);
+            await ShowErrorAsync("Couldn't preview attachment", ex.Message);
+        }
+    }
 
-    private void ReplyAll_Click(object sender, RoutedEventArgs e) => OpenCompose(ComposeMode.ReplyAll, _vm.CurrentMessage);
+    private async void AttachmentDownload_Click(object sender, RoutedEventArgs e)
+    {
+        var (name, data) = await FetchAttachmentAsync(sender);
+        if (data is null)
+        {
+            return;
+        }
 
-    private void Forward_Click(object sender, RoutedEventArgs e) => OpenCompose(ComposeMode.Forward, _vm.CurrentMessage);
+        try
+        {
+            var picker = new FileSavePicker { SuggestedStartLocation = PickerLocationId.Downloads };
+            var ext = IoPath.GetExtension(name) is { Length: > 1 } x ? x : ".dat";
+            picker.FileTypeChoices.Add(ext.TrimStart('.').ToUpperInvariant() + " file", new List<string> { ext });
+            picker.SuggestedFileName = IoPath.GetFileNameWithoutExtension(name);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+            var file = await picker.PickSaveFileAsync();
+            if (file is not null)
+            {
+                await FileIO.WriteBytesAsync(file, data);
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.AttachmentDownload_Click", ex);
+            await ShowErrorAsync("Couldn't save attachment", ex.Message);
+        }
+    }
+
+    private async Task<(string? Name, byte[]? Data)> FetchAttachmentAsync(object sender)
+    {
+        if (sender is not FrameworkElement { Tag: int index } ||
+            _vm.CurrentAccount is not { } account ||
+            _vm.CurrentOpenRow is not { } row)
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            return await Task.Run(() =>
+                MailService.GetAttachmentAsync(account, row.Folder, row.Uid, index, CancellationToken.None));
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.FetchAttachmentAsync", ex);
+            await ShowErrorAsync("Couldn't download attachment", ex.Message);
+            return (null, null);
+        }
+    }
+
+    // ----- toolbar / compose -----
+
+    private void ComposeButton_Click(object sender, RoutedEventArgs e) => StartCompose(ComposeMode.New, null);
+
+    private void Reply_Click(object sender, RoutedEventArgs e) => StartCompose(ComposeMode.Reply, _vm.CurrentMessage);
+
+    private void ReplyAll_Click(object sender, RoutedEventArgs e) => StartCompose(ComposeMode.ReplyAll, _vm.CurrentMessage);
+
+    private void Forward_Click(object sender, RoutedEventArgs e) => StartCompose(ComposeMode.Forward, _vm.CurrentMessage);
 
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageList.SelectedItem is MessageRow row)
+        if (_vm.CurrentOpenRow is { } row)
         {
             await _vm.DeleteAsync(row);
             await RenderCurrentMessageAsync();
@@ -427,7 +563,7 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
     }
 
-    private void OpenCompose(ComposeMode mode, MailMessageContent? source)
+    private void StartCompose(ComposeMode mode, MailMessageContent? source)
     {
         var account = _vm.CurrentAccount ?? AccountStore.All.FirstOrDefault();
         if (account is null)
@@ -436,8 +572,127 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        new ComposeWindow(account, mode, source).Activate();
+        _composeAccount = account;
+        _composeSource = mode == ComposeMode.New ? null : source;
+
+        ComposeStatus.IsOpen = false;
+        ComposeSendButton.IsEnabled = true;
+        ComposeTo.Text = ComposeCc.Text = ComposeSubject.Text = ComposeBody.Text = string.Empty;
+
+        if (_composeSource is { } src)
+        {
+            var quoted = string.Join("\n", (src.PlainText ?? StripHtml(src.Html) ?? string.Empty)
+                .Split('\n').Select(l => "> " + l));
+            var replyBody = $"\n\nOn {src.Date.LocalDateTime:f}, {src.FromDisplay} wrote:\n{quoted}\n";
+
+            switch (mode)
+            {
+                case ComposeMode.Reply:
+                    ComposeTo.Text = src.ReplyToAddress;
+                    ComposeSubject.Text = Prefixed("Re:", src.Subject);
+                    ComposeBody.Text = replyBody;
+                    break;
+                case ComposeMode.ReplyAll:
+                    ComposeTo.Text = src.ReplyToAddress;
+                    ComposeCc.Text = src.CcDisplay;
+                    ComposeSubject.Text = Prefixed("Re:", src.Subject);
+                    ComposeBody.Text = replyBody;
+                    break;
+                case ComposeMode.Forward:
+                    ComposeSubject.Text = Prefixed("Fwd:", src.Subject);
+                    ComposeBody.Text =
+                        $"\n\n---------- Forwarded message ----------\nFrom: {src.FromDisplay}\n" +
+                        $"Date: {src.Date.LocalDateTime:f}\nSubject: {src.Subject}\nTo: {src.ToDisplay}\n\n" +
+                        (src.PlainText ?? StripHtml(src.Html) ?? string.Empty);
+                    break;
+            }
+        }
+
+        ComposeHeading.Text = mode switch
+        {
+            ComposeMode.Reply or ComposeMode.ReplyAll => "Reply",
+            ComposeMode.Forward => "Forward",
+            _ => "New message",
+        };
+
+        ShowReading(ReadingMode.Compose);
+        ComposeTo.Focus(FocusState.Programmatic);
     }
+
+    private void ComposeDiscard_Click(object sender, RoutedEventArgs e) =>
+        ShowReading(_vm.HasMessage ? ReadingMode.Message : ReadingMode.Empty);
+
+    private async void ComposeSend_Click(object sender, RoutedEventArgs e)
+    {
+        if (_composeAccount is not { } account)
+        {
+            return;
+        }
+
+        var recipients = ParseAddresses(ComposeTo.Text).ToList();
+        if (recipients.Count == 0)
+        {
+            ComposeStatus.Severity = InfoBarSeverity.Warning;
+            ComposeStatus.Message = "Add at least one recipient.";
+            ComposeStatus.IsOpen = true;
+            return;
+        }
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(
+            string.IsNullOrWhiteSpace(account.DisplayName) ? account.Email : account.DisplayName, account.Email));
+        message.To.AddRange(recipients);
+        message.Cc.AddRange(ParseAddresses(ComposeCc.Text));
+        message.Subject = ComposeSubject.Text;
+        message.Body = new TextPart("plain") { Text = ComposeBody.Text };
+
+        if (_composeSource is { MessageId.Length: > 0 } src)
+        {
+            message.InReplyTo = src.MessageId;
+            foreach (var reference in src.References.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                message.References.Add(reference);
+            }
+
+            message.References.Add(src.MessageId);
+        }
+
+        ComposeSendButton.IsEnabled = false;
+        ComposeStatus.Severity = InfoBarSeverity.Informational;
+        ComposeStatus.Message = "Sending...";
+        ComposeStatus.IsOpen = true;
+
+        try
+        {
+            await Task.Run(() => MailService.SendAsync(account, message, CancellationToken.None));
+            ShowReading(_vm.HasMessage ? ReadingMode.Message : ReadingMode.Empty);
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.ComposeSend_Click", ex);
+            ComposeStatus.Severity = InfoBarSeverity.Error;
+            ComposeStatus.Message = "Send failed: " + ex.Message;
+            ComposeStatus.IsOpen = true;
+            ComposeSendButton.IsEnabled = true;
+        }
+    }
+
+    private static IEnumerable<MailboxAddress> ParseAddresses(string raw)
+    {
+        foreach (var part in raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (MailboxAddress.TryParse(part.Trim(), out var address))
+            {
+                yield return address;
+            }
+        }
+    }
+
+    private static string Prefixed(string prefix, string subject) =>
+        subject.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? subject : $"{prefix} {subject}";
+
+    private static string? StripHtml(string? html) =>
+        html is null ? null : System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", string.Empty);
 
     private async Task ShowErrorAsync(string title, string message)
     {

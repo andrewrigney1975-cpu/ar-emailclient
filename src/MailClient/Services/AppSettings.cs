@@ -5,6 +5,11 @@ public sealed class AppSettingsData
 {
     /// Whether the right-rail calendar pane is shown.
     public bool CalendarVisible { get; set; }
+
+    /// Last folder the user had open, reopened on the next launch.
+    public string LastAccountId { get; set; } = string.Empty;
+    public string LastFolder { get; set; } = string.Empty;
+    public string LastFolderTitle { get; set; } = string.Empty;
 }
 
 public static class AppSettings

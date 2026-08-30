@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using MailClient.Models;
 using MailClient.Services;
@@ -11,10 +12,12 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly DispatcherQueue _dispatcher;
     private CancellationTokenSource _listCts = new();
     private CancellationTokenSource _bodyCts = new();
+    private List<MessageRow> _rows = new();
 
     public MainViewModel(DispatcherQueue dispatcher) => _dispatcher = dispatcher;
 
-    public ObservableCollection<MessageRow> Messages { get; } = new();
+    /// Date-grouped / threaded tree shown in the message list.
+    public ObservableCollection<MailListNode> ListNodes { get; } = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasAccounts))]
@@ -32,9 +35,6 @@ public sealed partial class MainViewModel : ObservableObject
     public partial bool IsBusy { get; set; }
 
     [ObservableProperty]
-    public partial MessageRow? SelectedMessage { get; set; }
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasMessage))]
     public partial MailMessageContent? CurrentMessage { get; set; }
 
@@ -42,6 +42,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public MailAccount? CurrentAccount { get; private set; }
     public string CurrentFolder { get; private set; } = string.Empty;
+    public MessageRow? CurrentOpenRow { get; private set; }
 
     /// Loads a folder: cached rows first (instant), then the live IMAP fetch.
     public async Task OpenFolderAsync(MailAccount account, string folderFullName, string title)
@@ -54,13 +55,17 @@ public sealed partial class MainViewModel : ObservableObject
         CurrentFolder = folderFullName;
         FolderTitle = title;
         CurrentMessage = null;
-        SelectedMessage = null;
+        CurrentOpenRow = null;
 
-        Messages.Clear();
-        foreach (var row in MessageCache.Load(account.Id, folderFullName))
+        AppSettings.Update(s =>
         {
-            Messages.Add(row);
-        }
+            s.LastAccountId = account.Id;
+            s.LastFolder = folderFullName;
+            s.LastFolderTitle = title;
+        });
+
+        _rows = MessageCache.Load(account.Id, folderFullName);
+        BuildListNodes();
 
         IsBusy = true;
         StatusText = "Syncing...";
@@ -77,12 +82,8 @@ public sealed partial class MainViewModel : ObservableObject
 
             _dispatcher.TryEnqueue(() =>
             {
-                Messages.Clear();
-                foreach (var row in live)
-                {
-                    Messages.Add(row);
-                }
-
+                _rows = live;
+                BuildListNodes();
                 StatusText = $"{live.Count} message(s)";
                 IsBusy = false;
             });
@@ -113,6 +114,7 @@ public sealed partial class MainViewModel : ObservableObject
         var ct = _bodyCts.Token;
 
         CurrentMessage = null;
+        CurrentOpenRow = row;
         StatusText = "Opening...";
 
         try
@@ -124,8 +126,6 @@ public sealed partial class MainViewModel : ObservableObject
                 return;
             }
 
-            // Already back on the UI thread here (caller awaits from a UI handler); assign directly
-            // so the view's render pass, which runs right after this await, sees the content.
             CurrentMessage = content;
             StatusText = string.Empty;
 
@@ -153,10 +153,12 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        Messages.Remove(row);
-        if (ReferenceEquals(SelectedMessage, row))
+        _rows.RemoveAll(r => r.Folder == row.Folder && r.Uid == row.Uid);
+        BuildListNodes();
+        if (ReferenceEquals(CurrentOpenRow, row))
         {
             CurrentMessage = null;
+            CurrentOpenRow = null;
         }
 
         try
@@ -178,18 +180,14 @@ public sealed partial class MainViewModel : ObservableObject
 
         CurrentAccount = account;
         CurrentMessage = null;
-        SelectedMessage = null;
+        CurrentOpenRow = null;
         IsBusy = true;
         StatusText = "Searching...";
 
         var hits = await Task.Run(() => MessageCache.Search(account.Id, query));
 
-        Messages.Clear();
-        foreach (var row in hits)
-        {
-            Messages.Add(row);
-        }
-
+        _rows = hits;
+        BuildListNodes();
         FolderTitle = $"Search: “{query}”";
         StatusText = $"{hits.Count} result(s)";
         IsBusy = false;
@@ -202,9 +200,10 @@ public sealed partial class MainViewModel : ObservableObject
         _bodyCts.Cancel();
         CurrentAccount = null;
         CurrentFolder = string.Empty;
-        Messages.Clear();
+        CurrentOpenRow = null;
+        _rows = new List<MessageRow>();
+        ListNodes.Clear();
         CurrentMessage = null;
-        SelectedMessage = null;
         FolderTitle = "No folder selected";
         StatusText = string.Empty;
         IsBusy = false;
@@ -214,4 +213,86 @@ public sealed partial class MainViewModel : ObservableObject
         CurrentAccount is { } acc && CurrentFolder.Length > 0
             ? OpenFolderAsync(acc, CurrentFolder, FolderTitle)
             : Task.CompletedTask;
+
+    // ----- list grouping -----
+
+    private void BuildListNodes()
+    {
+        ListNodes.Clear();
+
+        var buckets = _rows
+            .GroupBy(r => DateBucket(r.Date))
+            .OrderBy(g => g.Key.Sort);
+
+        foreach (var bucket in buckets)
+        {
+            var groupNode = new MailListNode
+            {
+                Kind = MailListKind.DateGroup,
+                Header = bucket.Key.Name,
+                MessageCount = bucket.Count(),
+                IsExpanded = true,
+            };
+
+            var threads = bucket
+                .GroupBy(NormaliseSubject)
+                .Select(g => g.OrderByDescending(r => r.Date).ToList())
+                .OrderByDescending(list => list[0].Date);
+
+            foreach (var thread in threads)
+            {
+                if (thread.Count == 1)
+                {
+                    groupNode.Children.Add(MessageNode(thread[0]));
+                    continue;
+                }
+
+                var threadNode = new MailListNode
+                {
+                    Kind = MailListKind.Thread,
+                    Header = string.IsNullOrWhiteSpace(thread[0].Subject) ? "(no subject)" : thread[0].Subject,
+                    MessageCount = thread.Count,
+                    IsExpanded = false,
+                };
+
+                foreach (var row in thread)
+                {
+                    threadNode.Children.Add(MessageNode(row));
+                }
+
+                groupNode.Children.Add(threadNode);
+            }
+
+            ListNodes.Add(groupNode);
+        }
+    }
+
+    private static MailListNode MessageNode(MessageRow row) =>
+        new() { Kind = MailListKind.Message, Row = row };
+
+    private static string NormaliseSubject(MessageRow row)
+    {
+        var s = (row.Subject ?? string.Empty).Trim();
+        s = Regex.Replace(s, @"^(?:\s*(?:re|fw|fwd|aw|sv)\s*:\s*)+", string.Empty, RegexOptions.IgnoreCase);
+        return s.ToLowerInvariant();
+    }
+
+    private static (int Sort, string Name) DateBucket(DateTimeOffset when)
+    {
+        var day = when.LocalDateTime.Date;
+        var today = DateTime.Today;
+
+        if (day == today) return (0, "Today");
+        if (day == today.AddDays(-1)) return (1, "Yesterday");
+
+        var startOfWeek = today.AddDays(-(int)today.DayOfWeek);
+        if (day >= startOfWeek) return (2, "This Week");
+        if (day >= startOfWeek.AddDays(-7)) return (3, "Last Week");
+
+        var startOfMonth = new DateTime(today.Year, today.Month, 1);
+        if (day >= startOfMonth) return (4, "This Month");
+        if (day >= startOfMonth.AddMonths(-1)) return (5, "Last Month");
+
+        return (6, "Older");
+    }
 }

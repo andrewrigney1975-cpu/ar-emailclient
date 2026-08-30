@@ -69,11 +69,11 @@ Output: `src\MailClient\bin\Debug\net8.0-windows10.0.19041.0\win-x64\winui3-mail
 ```
 src/MailClient/
   App.xaml(.cs), MainWindow.xaml(.cs)   shell + orchestration
-  Models/       MailAccount, MailNode, MessageRow, MailMessageContent
-  Services/     AccountStore, SecretProtector, MailService (MailKit), MessageCache (SQLite),
-                JsonFileStore, LoggingService, AppPaths
-  ViewModels/   MainViewModel
-  Views/        AddAccountDialog, ComposeWindow
+  Models/       MailAccount, MailNode, MailListNode, MessageRow, MailMessageContent, ComposeMode
+  Services/     AccountStore, SecretProtector, MailService (MailKit), MessageCache (SQLite folders +
+                summaries + search), JsonFileStore, AppSettings, RemoteContentStore, LoggingService, AppPaths
+  ViewModels/   MainViewModel (date-grouped / threaded message list)
+  Views/        AddAccountDialog   (compose is hosted in the reading pane)
   Helpers/      ColumnSplitterController
   Converters/
 ```

@@ -152,36 +152,55 @@
                                     QuerySubmitted="SearchBox_QuerySubmitted" TextChanged="SearchBox_TextChanged" />
                 </StackPanel>
 
-                <ListView Grid.Row="1" x:Name="MessageList" ItemsSource="{Binding Messages}"
-                          SelectedItem="{Binding SelectedMessage, Mode=TwoWay}"
-                          SelectionChanged="MessageList_SelectionChanged"
+                <TreeView Grid.Row="1" x:Name="MessageTree" SelectionMode="Single"
+                          ItemInvoked="MessageTree_ItemInvoked"
                           AutomationProperties.Name="Messages">
-                    <ListView.ItemTemplate>
+                    <TreeView.ItemTemplate>
                         <DataTemplate>
-                            <Grid Padding="4,8" ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="8" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Top" Margin="0,4,0,0"
-                                         Fill="{Binding IsRead, Converter={StaticResource ReadDot}}" />
-                                <StackPanel Grid.Column="1" Spacing="2" Opacity="{Binding IsRead, Converter={StaticResource ReadOpacity}}">
-                                    <TextBlock Text="{Binding From}" FontWeight="{Binding IsRead, Converter={StaticResource ReadWeight}}"
-                                               TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding SubjectDisplay}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding Preview}" FontSize="11" Opacity="0.6" MaxLines="1"
-                                               TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="2">
-                                    <TextBlock Text="{Binding DateDisplay}" FontSize="11" Opacity="0.6" HorizontalAlignment="Right" />
-                                    <FontIcon Glyph="&#xE723;" FontSize="11" Opacity="0.6" HorizontalAlignment="Right"
-                                              Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}" />
-                                </StackPanel>
-                            </Grid>
+                            <TreeViewItem ItemsSource="{Binding Children}"
+                                          IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                <Grid Background="Transparent" Padding="2,4" HorizontalAlignment="Stretch">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                                                Visibility="{Binding IsHeader, Converter={StaticResource BoolToVis}}">
+                                        <FontIcon Glyph="&#xE8BC;" FontSize="11" Opacity="0.6" VerticalAlignment="Center"
+                                                  Visibility="{Binding IsThread, Converter={StaticResource BoolToVis}}" />
+                                        <TextBlock Text="{Binding Header}" FontWeight="SemiBold" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <Border Background="{ThemeResource ControlFillColorSecondaryBrush}" CornerRadius="8"
+                                                Padding="6,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CountLabel}" FontSize="10" Opacity="0.7" />
+                                        </Border>
+                                    </StackPanel>
+
+                                    <Grid ColumnSpacing="8" Visibility="{Binding IsMessage, Converter={StaticResource BoolToVis}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="8" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Top" Margin="0,4,0,0"
+                                                 Fill="{Binding Row.IsRead, Converter={StaticResource ReadDot}}" />
+                                        <StackPanel Grid.Column="1" Spacing="2"
+                                                    Opacity="{Binding Row.IsRead, Converter={StaticResource ReadOpacity}}">
+                                            <TextBlock Text="{Binding Row.From}"
+                                                       FontWeight="{Binding Row.IsRead, Converter={StaticResource ReadWeight}}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Row.SubjectDisplay}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Row.Preview}" FontSize="11" Opacity="0.6" MaxLines="1"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="2">
+                                            <TextBlock Text="{Binding Row.DateDisplay}" FontSize="11" Opacity="0.6" HorizontalAlignment="Right" />
+                                            <FontIcon Glyph="&#xE723;" FontSize="11" Opacity="0.6" HorizontalAlignment="Right"
+                                                      Visibility="{Binding Row.HasAttachments, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Grid>
+                            </TreeViewItem>
                         </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
+                    </TreeView.ItemTemplate>
+                </TreeView>
             </Grid>
 
             <Rectangle Grid.Column="4" x:Name="ReadingSplitter" Width="6" HorizontalAlignment="Stretch"
@@ -196,8 +215,7 @@
                     </StackPanel>
                 </Grid>
 
-                <Grid x:Name="ReadingContent"
-                      Visibility="{Binding HasMessage, Converter={StaticResource BoolToVis}}">
+                <Grid x:Name="ReadingContent" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -256,24 +274,71 @@
                         </ScrollViewer>
                     </Grid>
 
-                    <ItemsControl Grid.Row="3" x:Name="AttachmentsList" Padding="12,8"
-                                  BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                  Visibility="Collapsed">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8" /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4"
-                                        Padding="8,4">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon Glyph="&#xE723;" FontSize="12" />
-                                        <TextBlock Text="{Binding FileName}" FontSize="12" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <StackPanel Grid.Row="3" x:Name="AttachmentsBar" Spacing="6" Padding="12,8"
+                                BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                Visibility="Collapsed">
+                        <TextBlock Text="Attachments" FontSize="11" Opacity="0.6" />
+                        <ItemsControl x:Name="AttachmentsList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4"
+                                            Padding="8,4">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE723;" FontSize="12" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding FileName}" FontSize="12" VerticalAlignment="Center" />
+                                            <Button Padding="4" Background="Transparent" BorderThickness="0"
+                                                    Tag="{Binding Index}" Click="AttachmentPreview_Click"
+                                                    ToolTipService.ToolTip="Preview">
+                                                <FontIcon Glyph="&#xE8A7;" FontSize="12" />
+                                            </Button>
+                                            <Button Padding="4" Background="Transparent" BorderThickness="0"
+                                                    Tag="{Binding Index}" Click="AttachmentDownload_Click"
+                                                    ToolTipService.ToolTip="Save as…">
+                                                <FontIcon Glyph="&#xE896;" FontSize="12" />
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Compose: the reading pane doubles as the composer -->
+                <Grid x:Name="ReadingCompose" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Padding="16,12,16,8" Spacing="8"
+                                BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <TextBlock x:Name="ComposeHeading" Text="New message" FontWeight="SemiBold" FontSize="14" />
+                        <TextBox x:Name="ComposeTo" Header="To"
+                                 PlaceholderText="recipient@example.com, another@example.com" />
+                        <TextBox x:Name="ComposeCc" Header="Cc" />
+                        <TextBox x:Name="ComposeSubject" Header="Subject" />
+                    </StackPanel>
+
+                    <InfoBar Grid.Row="1" x:Name="ComposeStatus" IsOpen="False" IsClosable="False" Margin="16,8,16,0" />
+
+                    <TextBox Grid.Row="2" x:Name="ComposeBody" Margin="16,8" AcceptsReturn="True" TextWrapping="Wrap"
+                             VerticalAlignment="Stretch" VerticalContentAlignment="Top"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto" PlaceholderText="Write your message..." />
+
+                    <Grid Grid.Row="3" Padding="16,10" BorderThickness="0,1,0,0"
+                          BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                            <Button Content="Discard" Click="ComposeDiscard_Click" />
+                            <Button x:Name="ComposeSendButton" Content="Send"
+                                    Style="{ThemeResource AccentButtonStyle}" Click="ComposeSend_Click" />
+                        </StackPanel>
+                    </Grid>
                 </Grid>
             </Grid>
 

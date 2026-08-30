@@ -204,6 +204,47 @@ public static class MailService
         }, ct);
     }
 
+    /// Downloads one attachment (by its index in MailMessageContent.Attachments) as raw bytes.
+    public static async Task<(string FileName, byte[] Data)> GetAttachmentAsync(
+        MailAccount account, string folderFullName, uint uid, int index, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        return await conn.RunAsync(async client =>
+        {
+            var folder = await OpenAsync(client, folderFullName, FolderAccess.ReadOnly, ct);
+            var message = await folder.GetMessageAsync(new UniqueId(uid), ct);
+
+            var attachment = message.Attachments.ElementAtOrDefault(index)
+                ?? throw new InvalidOperationException("Attachment not found.");
+
+            using var ms = new MemoryStream();
+            if (attachment is MessagePart messagePart)
+            {
+                await messagePart.Message.WriteToAsync(ms, ct);
+            }
+            else if (attachment is MimePart mimePart)
+            {
+                await mimePart.Content.DecodeToAsync(ms, ct);
+            }
+
+            var name = attachment.ContentDisposition?.FileName
+                ?? attachment.ContentType.Name
+                ?? $"attachment-{index + 1}";
+
+            return (SanitiseFileName(name), ms.ToArray());
+        }, ct);
+    }
+
+    private static string SanitiseFileName(string name)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(c, '_');
+        }
+
+        return string.IsNullOrWhiteSpace(name) ? "attachment" : name;
+    }
+
     public static async Task MarkReadAsync(MailAccount account, string folderFullName, uint uid, bool read, CancellationToken ct)
     {
         var conn = ConnectionFor(account);
