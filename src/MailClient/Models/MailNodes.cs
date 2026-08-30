@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace MailClient.Models;
@@ -24,7 +25,13 @@ public partial class MailNode : ObservableObject
     public partial bool IsConnecting { get; set; }
 
     [ObservableProperty]
+    public partial bool IsExpanded { get; set; }
+
+    [ObservableProperty]
     public partial string? Error { get; set; }
+
+    /// Child folder nodes under an account row (empty for a folder row).
+    public ObservableCollection<MailNode> Children { get; } = new();
 
     // Segoe Fluent Icons codepoints.
     public string Glyph => IsAccount ? "" : FolderGlyph();

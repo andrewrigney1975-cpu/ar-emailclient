@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using MailClient.Helpers;
 using MailClient.Models;
 using MailClient.Services;
@@ -5,6 +6,9 @@ using MailClient.ViewModels;
 using MailClient.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 
 namespace MailClient;
@@ -12,12 +16,16 @@ namespace MailClient;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
+    private readonly ObservableCollection<MailNode> _railNodes = new();
 
     public MainWindow()
     {
         InitializeComponent();
 
-        Title = "WinUI3 Mail";
+        MailTree.ItemsSource = _railNodes;
+
+        Title = $"WinUI3 Mail — build {BuildInfo.Number}";
+        AppTitleText.Text = $"WinUI3 Mail  ·  build {BuildInfo.Number}";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
@@ -37,7 +45,7 @@ public sealed partial class MainWindow : Window
 
     private void BuildTree()
     {
-        MailTree.RootNodes.Clear();
+        _railNodes.Clear();
         var accounts = AccountStore.All;
 
         EmptyRailHint.Visibility = accounts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -45,36 +53,19 @@ public sealed partial class MainWindow : Window
 
         foreach (var account in accounts)
         {
-            MailTree.RootNodes.Add(new TreeViewNode
+            var node = new MailNode
             {
-                Content = new MailNode
-                {
-                    AccountId = account.Id,
-                    IsAccount = true,
-                    DisplayName = string.IsNullOrWhiteSpace(account.DisplayName) ? account.Email : account.DisplayName,
-                },
-                HasUnrealizedChildren = true,
-            });
-        }
-
-        if (MailTree.RootNodes.Count > 0)
-        {
-            MailTree.RootNodes[0].IsExpanded = true;
+                AccountId = account.Id,
+                IsAccount = true,
+                DisplayName = string.IsNullOrWhiteSpace(account.DisplayName) ? account.Email : account.DisplayName,
+                IsExpanded = true,
+            };
+            _railNodes.Add(node);
+            _ = LoadFoldersAsync(node);
         }
     }
 
-    private async void MailTree_Expanding(TreeView sender, TreeViewExpandingEventArgs args)
-    {
-        if (args.Node.Content is not MailNode { IsAccount: true } node || args.Node.Children.Count > 0)
-        {
-            return;
-        }
-
-        args.Node.HasUnrealizedChildren = false;
-        await LoadFoldersAsync(args.Node, node);
-    }
-
-    private async Task LoadFoldersAsync(TreeViewNode accountNode, MailNode node)
+    private async Task LoadFoldersAsync(MailNode node)
     {
         var account = AccountStore.Find(node.AccountId);
         if (account is null)
@@ -87,35 +78,131 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var folders = await Task.Run(() => MailService.GetFoldersAsync(account, CancellationToken.None));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            var folders = await Task.Run(() => MailService.GetFoldersAsync(account, cts.Token), cts.Token)
+                .ConfigureAwait(false);
 
-            accountNode.Children.Clear();
-            foreach (var folder in folders)
+            DispatcherQueue.TryEnqueue(() =>
             {
-                var child = new TreeViewNode
+                node.Children.Clear();
+                foreach (var folder in folders)
                 {
-                    Content = new MailNode
+                    node.Children.Add(new MailNode
                     {
                         AccountId = account.Id,
                         IsAccount = false,
                         FolderFullName = folder.FullName,
                         DisplayName = folder.Name,
                         UnreadCount = folder.Unread,
-                    },
-                };
-                accountNode.Children.Add(child);
-            }
+                    });
+                }
+
+                node.IsExpanded = true;
+                node.IsConnecting = false;
+                LoggingService.Info("MainWindow.LoadFoldersAsync",
+                    $"rendered {node.Children.Count} folder node(s) for {account.Email}");
+            });
         }
         catch (Exception ex)
         {
             LoggingService.Warn("MainWindow.LoadFoldersAsync", ex);
-            node.Error = ex.Message;
-            _ = ShowErrorAsync($"Couldn't connect to {account.Email}", ex.Message);
+            var message = ex is OperationCanceledException
+                ? $"Timed out contacting {account.ImapHost}. Check the server address, port and SSL setting."
+                : ex.Message;
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                node.Error = message;
+                node.IsConnecting = false;
+                _ = ShowErrorAsync($"Couldn't connect to {account.Email}", message);
+            });
         }
-        finally
+    }
+
+    private void MailTree_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        var node = (e.OriginalSource as FrameworkElement)?.DataContext as MailNode
+                   ?? FindNodeInParents(e.OriginalSource as DependencyObject);
+
+        if (node is not { IsAccount: true })
         {
-            node.IsConnecting = false;
+            return;
         }
+
+        var account = AccountStore.Find(node.AccountId);
+        if (account is null)
+        {
+            return;
+        }
+
+        var element = e.OriginalSource as FrameworkElement ?? MailTree;
+        var flyout = new MenuFlyout();
+
+        var reload = new MenuFlyoutItem { Text = "Reload folders" };
+        reload.Click += async (_, _) => await LoadFoldersAsync(node);
+        flyout.Items.Add(reload);
+
+        var edit = new MenuFlyoutItem { Text = "Edit account…" };
+        edit.Click += async (_, _) => await EditAccountAsync(account);
+        flyout.Items.Add(edit);
+
+        var remove = new MenuFlyoutItem { Text = "Remove account…" };
+        remove.Click += async (_, _) => await RemoveAccountAsync(account);
+        flyout.Items.Add(remove);
+
+        flyout.ShowAt(element, new FlyoutShowOptions { Position = e.GetPosition(element) });
+        e.Handled = true;
+    }
+
+    private static MailNode? FindNodeInParents(DependencyObject? start)
+    {
+        for (var d = start; d is not null; d = VisualTreeHelper.GetParent(d))
+        {
+            if (d is FrameworkElement { DataContext: MailNode node })
+            {
+                return node;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task EditAccountAsync(MailAccount account)
+    {
+        var dialog = new AddAccountDialog(account) { XamlRoot = Content.XamlRoot };
+        await dialog.ShowAsync();
+    }
+
+    private async Task RemoveAccountAsync(MailAccount account)
+    {
+        var confirm = await new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Remove account",
+            Content = new TextBlock
+            {
+                Text = $"Remove {account.Email}? Cached messages for this account will also be cleared.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = "Remove",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        }.ShowAsync();
+
+        if (confirm != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        MailService.Disconnect(account.Id);
+
+        if (_vm.CurrentAccount?.Id == account.Id)
+        {
+            _vm.ClearView();
+        }
+
+        MessageCache.ClearAccount(account.Id);
+        AccountStore.Remove(account.Id);
     }
 
     private async void MailTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)

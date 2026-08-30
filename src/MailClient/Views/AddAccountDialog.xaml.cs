@@ -6,12 +6,37 @@ namespace MailClient.Views;
 
 public sealed partial class AddAccountDialog : ContentDialog
 {
+    private readonly MailAccount? _existing;
     private bool _usernameEdited;
 
     public AddAccountDialog()
     {
         InitializeComponent();
         UsernameBox.TextChanged += (_, _) => _usernameEdited = true;
+    }
+
+    /// Opens the dialog pre-filled to edit an existing account. The password field is left blank;
+    /// leaving it blank keeps the stored password.
+    public AddAccountDialog(MailAccount existing)
+        : this()
+    {
+        _existing = existing;
+        _usernameEdited = true;
+
+        Title = "Edit account";
+        PrimaryButtonText = "Test & save";
+
+        DisplayNameBox.Text = existing.DisplayName;
+        EmailBox.Text = existing.Email;
+        ImapHostBox.Text = existing.ImapHost;
+        ImapPortBox.Value = existing.ImapPort;
+        ImapSslBox.IsChecked = existing.ImapUseSsl;
+        SmtpHostBox.Text = existing.SmtpHost;
+        SmtpPortBox.Value = existing.SmtpPort;
+        SmtpSslBox.IsChecked = existing.SmtpUseSsl;
+        UsernameBox.Text = existing.Username;
+
+        PasswordBox.Header = "Password (leave blank to keep current)";
     }
 
     private void EmailBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -57,7 +82,9 @@ public sealed partial class AddAccountDialog : ContentDialog
         args.Cancel = true; // keep open until verified
 
         var password = PasswordBox.Password;
-        if (string.IsNullOrWhiteSpace(EmailBox.Text) || string.IsNullOrEmpty(password) ||
+        var keepExistingPassword = _existing is not null && string.IsNullOrEmpty(password);
+
+        if (string.IsNullOrWhiteSpace(EmailBox.Text) || (string.IsNullOrEmpty(password) && !keepExistingPassword) ||
             string.IsNullOrWhiteSpace(ImapHostBox.Text) || string.IsNullOrWhiteSpace(SmtpHostBox.Text))
         {
             Show(InfoBarSeverity.Warning, "Fill in email, password, and both server names.");
@@ -65,8 +92,14 @@ public sealed partial class AddAccountDialog : ContentDialog
             return;
         }
 
+        if (keepExistingPassword)
+        {
+            password = SecretProtector.Unprotect(_existing!.ProtectedPassword);
+        }
+
         var account = new MailAccount
         {
+            Id = _existing?.Id ?? Guid.NewGuid().ToString("N"),
             DisplayName = DisplayNameBox.Text.Trim(),
             Email = EmailBox.Text.Trim(),
             Username = string.IsNullOrWhiteSpace(UsernameBox.Text) ? EmailBox.Text.Trim() : UsernameBox.Text.Trim(),
@@ -85,6 +118,13 @@ public sealed partial class AddAccountDialog : ContentDialog
         {
             await MailService.VerifyAsync(account, password, CancellationToken.None);
             account.ProtectedPassword = SecretProtector.Protect(password);
+
+            if (_existing is not null)
+            {
+                // Drop the cached connection so the new settings take effect immediately.
+                MailService.Disconnect(account.Id);
+            }
+
             AccountStore.AddOrUpdate(account);
             args.Cancel = false;
             Hide();

@@ -124,11 +124,10 @@ public sealed partial class MainViewModel : ObservableObject
                 return;
             }
 
-            _dispatcher.TryEnqueue(() =>
-            {
-                CurrentMessage = content;
-                StatusText = string.Empty;
-            });
+            // Already back on the UI thread here (caller awaits from a UI handler); assign directly
+            // so the view's render pass, which runs right after this await, sees the content.
+            CurrentMessage = content;
+            StatusText = string.Empty;
 
             if (!row.IsRead)
             {
@@ -169,6 +168,21 @@ public sealed partial class MainViewModel : ObservableObject
             LoggingService.Warn("MainViewModel.DeleteAsync", ex);
             StatusText = "Delete failed: " + ex.Message;
         }
+    }
+
+    /// Clears the current folder/message view, e.g. after its account is removed.
+    public void ClearView()
+    {
+        _listCts.Cancel();
+        _bodyCts.Cancel();
+        CurrentAccount = null;
+        CurrentFolder = string.Empty;
+        Messages.Clear();
+        CurrentMessage = null;
+        SelectedMessage = null;
+        FolderTitle = "No folder selected";
+        StatusText = string.Empty;
+        IsBusy = false;
     }
 
     public Task RefreshAsync() =>

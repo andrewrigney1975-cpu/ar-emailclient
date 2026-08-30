@@ -127,6 +127,22 @@ public static class MessageCache
         }
     }
 
+    public static void ClearAccount(string accountId)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM Summaries WHERE AccountId = @a";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.ClearAccount", ex);
+        }
+    }
+
     public static void SetRead(string accountId, string folder, uint uid, bool read)
     {
         try

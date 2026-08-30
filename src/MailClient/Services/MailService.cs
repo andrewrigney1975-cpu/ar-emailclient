@@ -65,8 +65,9 @@ public static class MailService
 
     public static async Task<List<FolderInfo>> GetFoldersAsync(MailAccount account, CancellationToken ct)
     {
+        LoggingService.Info("MailService.GetFoldersAsync", $"listing folders for {account.Email}");
         var conn = ConnectionFor(account);
-        return await conn.RunAsync(async client =>
+        var folders = await conn.RunAsync(async client =>
         {
             var result = new List<FolderInfo>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -85,6 +86,9 @@ public static class MailService
 
             return result;
         }, ct);
+
+        LoggingService.Info("MailService.GetFoldersAsync", $"got {folders.Count} folder(s) for {account.Email}");
+        return folders;
     }
 
     private static async Task AddFolderTreeAsync(IMailFolder parent, List<FolderInfo> into, HashSet<string> seen, CancellationToken ct)
@@ -346,9 +350,24 @@ public static class MailService
             _client?.Dispose();
             _client = new ImapClient { Timeout = 60_000 };
 
-            await _client.ConnectAsync(_account.ImapHost, _account.ImapPort,
-                _account.ImapUseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable, ct);
-            await _client.AuthenticateAsync(_account.Username, AccountStore.PasswordOf(_account), ct);
+            // ImapClient.Timeout does not bound the initial connect / TLS / auth handshake, so guard
+            // it explicitly - otherwise an unresponsive server hangs the caller forever.
+            using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            handshakeCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+            try
+            {
+                await _client.ConnectAsync(_account.ImapHost, _account.ImapPort,
+                    _account.ImapUseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable,
+                    handshakeCts.Token);
+                await _client.AuthenticateAsync(_account.Username, AccountStore.PasswordOf(_account), handshakeCts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Timed out connecting to {_account.ImapHost}:{_account.ImapPort}. Check the server address, port and SSL setting.");
+            }
+
             return _client;
         }
 

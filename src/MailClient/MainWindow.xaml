@@ -13,6 +13,7 @@
         <Grid.Resources>
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
             <conv:NullToVisibilityConverter x:Key="NullToVis" />
+            <conv:CountToVisibilityConverter x:Key="CountToVis" />
             <conv:ReadToOpacityConverter x:Key="ReadOpacity" />
             <conv:ReadToWeightConverter x:Key="ReadWeight" />
             <conv:ReadToDotBrushConverter x:Key="ReadDot" />
@@ -27,7 +28,7 @@
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource ControlFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
                 <FontIcon Glyph="&#xE715;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                <TextBlock Text="WinUI3 Mail" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+                <TextBlock x:Name="AppTitleText" Text="WinUI3 Mail" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
                 <TextBlock x:Name="StatusInline" Text="{Binding StatusText}" FontSize="12" Opacity="0.6"
                            VerticalAlignment="Center" Margin="10,0,0,0" />
             </StackPanel>
@@ -81,22 +82,29 @@
                 <TextBlock Grid.Row="0" Text="Mailboxes" FontWeight="SemiBold" Margin="12,10,12,4" />
 
                 <TreeView Grid.Row="1" x:Name="MailTree" Margin="4,0,4,4" SelectionMode="Single"
-                          ItemInvoked="MailTree_ItemInvoked" Expanding="MailTree_Expanding">
+                          ItemInvoked="MailTree_ItemInvoked"
+                          RightTapped="MailTree_RightTapped">
                     <TreeView.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="8" Padding="2,3">
-                                <FontIcon Glyph="{Binding Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
-                                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis" />
-                                <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="8"
-                                        Padding="6,0" MinWidth="18" Height="16" VerticalAlignment="Center"
-                                        Visibility="{Binding UnreadCount, Converter={StaticResource NullToVis}}">
-                                    <TextBlock Text="{Binding UnreadCount}" FontSize="10"
-                                               Foreground="White" HorizontalAlignment="Center" />
-                                </Border>
-                                <ProgressRing IsActive="{Binding IsConnecting}" Width="14" Height="14" />
-                            </StackPanel>
+                            <TreeViewItem ItemsSource="{Binding Children}"
+                                          IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Padding="2,3"
+                                            HorizontalAlignment="Stretch" Background="Transparent">
+                                    <FontIcon Glyph="{Binding Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="8"
+                                            Padding="6,0" MinWidth="18" Height="16" VerticalAlignment="Center"
+                                            Visibility="{Binding UnreadCount, Converter={StaticResource CountToVis}}">
+                                        <TextBlock Text="{Binding UnreadCount}" FontSize="10"
+                                                   Foreground="White" HorizontalAlignment="Center" />
+                                    </Border>
+                                    <ProgressRing IsActive="{Binding IsConnecting}" Width="14" Height="14"
+                                                  Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                            </TreeViewItem>
                         </DataTemplate>
                     </TreeView.ItemTemplate>
                 </TreeView>

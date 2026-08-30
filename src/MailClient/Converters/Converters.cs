@@ -36,6 +36,15 @@ public sealed partial class NullToVisibilityConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
+/// Shows an element only when the bound count is greater than zero.
+public sealed partial class CountToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is int n && n > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
 /// Unread messages get an accent dot and a bolder weight.
 public sealed partial class ReadToOpacityConverter : IValueConverter
 {

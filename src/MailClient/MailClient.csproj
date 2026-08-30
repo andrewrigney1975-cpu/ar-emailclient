@@ -36,4 +36,30 @@
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
+  <!-- Auto-incrementing build number. Bumped once per compiling build (skipped for design-time
+       builds), persisted to BuildNumber.txt, and embedded as an [AssemblyMetadata("BuildNumber", n)]
+       attribute read at runtime by MailClient.BuildInfo. -->
+  <Target Name="SetBuildNumber" BeforeTargets="CoreGenerateAssemblyInfo;GetAssemblyAttributes"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(BuildingProject)' == 'true'">
+    <PropertyGroup>
+      <_BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</_BuildNumberFile>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(_BuildNumberFile)">
+      <Output TaskParameter="Lines" ItemName="_BuildNumberLines" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <_CurrentBuildNumber>@(_BuildNumberLines)</_CurrentBuildNumber>
+      <_CurrentBuildNumber Condition="'$(_CurrentBuildNumber)' == ''">0</_CurrentBuildNumber>
+      <BuildNumber>$([MSBuild]::Add($(_CurrentBuildNumber), 1))</BuildNumber>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>BuildNumber</_Parameter1>
+        <_Parameter2>$(BuildNumber)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+    <Message Importance="high" Text="Build number: $(BuildNumber)" />
+  </Target>
+
 </Project>
