@@ -28,8 +28,3 @@ Toast clicks are handled in-process (`NotificationInvoked`) and on cold launch
 `RedirectActivationToAsync` so a toast click can never spin up a second window
 when one is already running.
 
-## Hashtags
-User tags on a message (`#rego`, `#project-x`). Store locally in SQLite
-(`Tags(AccountId, Folder, Uid, Tag)`). Add via message context menu / a tag
-field in the reading pane; show as chips; filter the list by tag and expose
-saved tag filters under Smart Folders.

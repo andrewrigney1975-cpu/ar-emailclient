@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MailClient.Models;
 using Microsoft.Data.Sqlite;
 
@@ -43,8 +44,14 @@ public static class MessageCache
                     Unread INTEGER NOT NULL, Ord INTEGER NOT NULL,
                     PRIMARY KEY (AccountId, FullName));
 
+                CREATE TABLE IF NOT EXISTS Tags (
+                    AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL, Tag TEXT NOT NULL,
+                    PRIMARY KEY (AccountId, Folder, Uid, Tag));
+
                 CREATE INDEX IF NOT EXISTS IX_Summaries_Search
                     ON Summaries (AccountId, DateTicks DESC);
+
+                CREATE INDEX IF NOT EXISTS IX_Tags_Tag ON Tags (Tag);
                 """;
             cmd.ExecuteNonQuery();
             _initialised = true;
@@ -283,6 +290,156 @@ public static class MessageCache
         {
             LoggingService.Warn("MessageCache.KnownAddresses", ex);
             return new List<(string, string)>();
+        }
+    }
+
+    // ----- tags -----
+
+    public static event EventHandler? TagsChanged;
+
+    public static string NormaliseTag(string tag)
+    {
+        tag = tag.Trim().TrimStart('#').Trim().ToLowerInvariant();
+        tag = Regex.Replace(tag, @"\s+", "-");
+        return Regex.Replace(tag, @"[^a-z0-9\-_./]", string.Empty);
+    }
+
+    public static List<string> TagsFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT Tag FROM Tags WHERE AccountId=@a AND Folder=@f AND Uid=@u ORDER BY Tag";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+
+            var list = new List<string>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                list.Add(reader.GetString(0));
+            }
+
+            return list;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.TagsFor", ex);
+            return new List<string>();
+        }
+    }
+
+    public static List<string> AllTags()
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT DISTINCT Tag FROM Tags ORDER BY Tag";
+
+            var list = new List<string>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                list.Add(reader.GetString(0));
+            }
+
+            return list;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.AllTags", ex);
+            return new List<string>();
+        }
+    }
+
+    public static void AddTag(string accountId, string folder, uint uid, string tag)
+    {
+        tag = NormaliseTag(tag);
+        if (tag.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT OR IGNORE INTO Tags VALUES (@a, @f, @u, @t)";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.Parameters.AddWithValue("@t", tag);
+            cmd.ExecuteNonQuery();
+            TagsChanged?.Invoke(null, EventArgs.Empty);
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.AddTag", ex);
+        }
+    }
+
+    public static void RemoveTag(string accountId, string folder, uint uid, string tag)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM Tags WHERE AccountId=@a AND Folder=@f AND Uid=@u AND Tag=@t";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.Parameters.AddWithValue("@t", NormaliseTag(tag));
+            cmd.ExecuteNonQuery();
+            TagsChanged?.Invoke(null, EventArgs.Empty);
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.RemoveTag", ex);
+        }
+    }
+
+    public static List<MessageRow> MessagesWithTag(string tag, int limit = 500)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT s.AccountId, s.Folder, s.Uid, s.FromName, s.FromAddr, s.Subject, s.Preview, " +
+                "s.DateTicks, s.HasAttachments, s.IsRead " +
+                "FROM Tags t JOIN Summaries s ON s.AccountId=t.AccountId AND s.Folder=t.Folder AND s.Uid=t.Uid " +
+                "WHERE t.Tag=@t ORDER BY s.DateTicks DESC LIMIT @lim";
+            cmd.Parameters.AddWithValue("@t", NormaliseTag(tag));
+            cmd.Parameters.AddWithValue("@lim", limit);
+
+            var rows = new List<MessageRow>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new MessageRow
+                {
+                    AccountId = reader.GetString(0),
+                    Folder = reader.GetString(1),
+                    Uid = (uint)reader.GetInt64(2),
+                    From = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    FromAddress = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    Subject = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+                    Preview = reader.IsDBNull(6) ? string.Empty : reader.GetString(6),
+                    Date = new DateTimeOffset(reader.GetInt64(7), TimeSpan.Zero),
+                    HasAttachments = reader.GetInt64(8) != 0,
+                    IsRead = reader.GetInt64(9) != 0,
+                });
+            }
+
+            return rows;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.MessagesWithTag", ex);
+            return new List<MessageRow>();
         }
     }
 

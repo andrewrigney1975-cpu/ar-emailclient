@@ -275,6 +275,29 @@ public sealed partial class MainViewModel : ObservableObject
             $"{targets.Count} message{(targets.Count == 1 ? "" : "s")} marked as read");
     }
 
+    /// Cross-account view of every message carrying a given tag.
+    public async Task ShowTagAsync(string tag)
+    {
+        _listCts.Cancel();
+        _listCts = new CancellationTokenSource();
+
+        CurrentAccount = null;
+        CurrentFolder = string.Empty;
+        SmartView = "tag:" + tag;
+        CurrentMessage = null;
+        CurrentOpenRow = null;
+        IsBusy = true;
+        StatusText = "Loading…";
+
+        var rows = await Task.Run(() => MessageCache.MessagesWithTag(tag));
+
+        _rows = rows;
+        BuildListNodes();
+        FolderTitle = "#" + tag;
+        StatusText = $"{rows.Count} tagged";
+        IsBusy = false;
+    }
+
     /// Cross-account view of every unread cached message.
     public async Task ShowUnreadAsync()
     {
@@ -339,6 +362,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public Task RefreshAsync(bool quiet = false) =>
         SmartView == "unread" ? ShowUnreadAsync()
+        : SmartView is { } sv && sv.StartsWith("tag:", StringComparison.Ordinal) ? ShowTagAsync(sv[4..])
         : CurrentAccount is { } acc && CurrentFolder.Length > 0
             ? OpenFolderAsync(acc, CurrentFolder, FolderTitle, quiet)
             : Task.CompletedTask;

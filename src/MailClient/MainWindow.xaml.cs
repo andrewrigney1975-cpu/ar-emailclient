@@ -80,6 +80,11 @@ public sealed partial class MainWindow : Window
 
         NotificationService.MailActivated += OnMailActivated;
         AccountStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(BuildTree);
+        MessageCache.TagsChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshTagNodes();
+            RefreshMessageTags();
+        });
         CalendarStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             RefreshCalendarDay();
@@ -216,6 +221,91 @@ public sealed partial class MainWindow : Window
         });
     }
 
+    private const string TagGlyph = "";
+
+    /// Rebuilds the per-tag children under Smart Folders > Tags (no folder reload).
+    private void RefreshTagNodes()
+    {
+        var tagsNode = _railNodes
+            .FirstOrDefault(n => n.AccountId == "__smart__")?.Children
+            .FirstOrDefault(c => c.FolderFullName == "__tags__");
+        if (tagsNode is null)
+        {
+            return;
+        }
+
+        var tags = MessageCache.AllTags();
+        tagsNode.DisplayName = tags.Count > 0 ? $"Tags ({tags.Count})" : "Tags";
+        tagsNode.Children.Clear();
+        foreach (var tag in tags)
+        {
+            tagsNode.Children.Add(new MailNode
+            {
+                AccountId = "__smart__",
+                IsAccount = false,
+                IsSmart = true,
+                FolderFullName = "__tag__:" + tag,
+                DisplayName = "#" + tag,
+                GlyphOverride = TagGlyph,
+            });
+        }
+    }
+
+    private void RefreshMessageTags()
+    {
+        if (_vm.CurrentOpenRow is { } row &&
+            (_vm.CurrentAccount ?? AccountStore.Find(row.AccountId)) is { } account)
+        {
+            MessageTagsList.ItemsSource = MessageCache.TagsFor(account.Id, row.Folder, row.Uid);
+        }
+        else
+        {
+            MessageTagsList.ItemsSource = null;
+        }
+    }
+
+    private async Task AddTagToRowAsync(MessageRow row)
+    {
+        var box = new AutoSuggestBox
+        {
+            Header = "Tag",
+            PlaceholderText = "e.g. rego",
+            Width = 280,
+            ItemsSource = MessageCache.AllTags(),
+        };
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Add tag",
+            Content = box,
+            PrimaryButtonText = "Add",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(box.Text))
+        {
+            MessageCache.AddTag(row.AccountId, row.Folder, row.Uid, box.Text);
+        }
+    }
+
+    private async void MessageTagAdd_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentOpenRow is { } row)
+        {
+            await AddTagToRowAsync(row);
+        }
+    }
+
+    private void MessageTagRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tag } && _vm.CurrentOpenRow is { } row)
+        {
+            MessageCache.RemoveTag(row.AccountId, row.Folder, row.Uid, tag);
+        }
+    }
+
     // ----- rail tree -----
 
     private void BuildTree()
@@ -244,7 +334,18 @@ public sealed partial class MainWindow : Window
             DisplayName = "Unread Mail",
             GlyphOverride = "",
         });
+        smart.Children.Add(new MailNode
+        {
+            AccountId = "__smart__",
+            IsAccount = false,
+            IsSmart = true,
+            FolderFullName = "__tags__",
+            DisplayName = "Tags",
+            GlyphOverride = "",
+            IsExpanded = false,
+        });
         _railNodes.Add(smart);
+        RefreshTagNodes();
 
         foreach (var account in accounts)
         {
@@ -458,6 +559,11 @@ public sealed partial class MainWindow : Window
             if (node.FolderFullName == "__unread__")
             {
                 await _vm.ShowUnreadAsync();
+                await RenderCurrentMessageAsync();
+            }
+            else if (node.FolderFullName.StartsWith("__tag__:", StringComparison.Ordinal))
+            {
+                await _vm.ShowTagAsync(node.FolderFullName["__tag__:".Length..]);
                 await RenderCurrentMessageAsync();
             }
 
@@ -697,6 +803,26 @@ public sealed partial class MainWindow : Window
             unread.Click += (_, _) => _vm.SetRead(row, false);
             flyout.Items.Add(read);
             flyout.Items.Add(unread);
+
+            flyout.Items.Add(new MenuFlyoutSeparator());
+            var addTag = new MenuFlyoutItem { Text = "Add tag…" };
+            addTag.Click += async (_, _) => await AddTagToRowAsync(row);
+            flyout.Items.Add(addTag);
+
+            var existing = MessageCache.TagsFor(row.AccountId, row.Folder, row.Uid);
+            if (existing.Count > 0)
+            {
+                var removeSub = new MenuFlyoutSubItem { Text = "Remove tag" };
+                foreach (var tag in existing)
+                {
+                    var item = new MenuFlyoutItem { Text = "#" + tag };
+                    var captured = tag;
+                    item.Click += (_, _) => MessageCache.RemoveTag(row.AccountId, row.Folder, row.Uid, captured);
+                    removeSub.Items.Add(item);
+                }
+
+                flyout.Items.Add(removeSub);
+            }
         }
         else
         {
@@ -780,6 +906,8 @@ public sealed partial class MainWindow : Window
         {
             ContactStore.Record(address.Trim(), null);
         }
+
+        RefreshMessageTags();
 
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
