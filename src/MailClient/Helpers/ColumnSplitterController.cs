@@ -13,22 +13,32 @@ public sealed class ColumnSplitterController
     private readonly bool _invert;
     private readonly double _min;
     private readonly double _max;
+    private readonly Action<double>? _onResized;
     private bool _dragging;
     private double _startWidth;
     private Windows.Foundation.Point _startPoint;
 
-    public ColumnSplitterController(FrameworkElement splitter, ColumnDefinition column, bool invert, double min, double max)
+    public ColumnSplitterController(FrameworkElement splitter, ColumnDefinition column, bool invert, double min, double max,
+        Action<double>? onResized = null)
     {
         _splitter = splitter;
         _column = column;
         _invert = invert;
         _min = min;
         _max = max;
+        _onResized = onResized;
 
         splitter.PointerPressed += OnPressed;
         splitter.PointerMoved += OnMoved;
         splitter.PointerReleased += OnReleased;
-        splitter.PointerCaptureLost += (_, _) => _dragging = false;
+        splitter.PointerCaptureLost += (_, _) =>
+        {
+            if (_dragging)
+            {
+                _dragging = false;
+                _onResized?.Invoke(_column.ActualWidth);
+            }
+        };
     }
 
     private void OnPressed(object sender, PointerRoutedEventArgs e)
@@ -57,7 +67,12 @@ public sealed class ColumnSplitterController
 
     private void OnReleased(object sender, PointerRoutedEventArgs e)
     {
-        _dragging = false;
+        if (_dragging)
+        {
+            _dragging = false;
+            _onResized?.Invoke(_column.ActualWidth);
+        }
+
         _splitter.ReleasePointerCapture(e.Pointer);
     }
 }

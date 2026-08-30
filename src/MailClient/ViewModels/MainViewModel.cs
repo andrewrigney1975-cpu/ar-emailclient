@@ -45,7 +45,8 @@ public sealed partial class MainViewModel : ObservableObject
     public MessageRow? CurrentOpenRow { get; private set; }
 
     /// Loads a folder: cached rows first (instant), then the live IMAP fetch.
-    public async Task OpenFolderAsync(MailAccount account, string folderFullName, string title)
+    /// <param name="quiet">Background poll - keep the existing list visible and don't show a spinner.</param>
+    public async Task OpenFolderAsync(MailAccount account, string folderFullName, string title, bool quiet = false)
     {
         _listCts.Cancel();
         _listCts = new CancellationTokenSource();
@@ -64,11 +65,14 @@ public sealed partial class MainViewModel : ObservableObject
             s.LastFolderTitle = title;
         });
 
-        _rows = MessageCache.Load(account.Id, folderFullName);
-        BuildListNodes();
+        if (!quiet)
+        {
+            _rows = MessageCache.Load(account.Id, folderFullName);
+            BuildListNodes();
+        }
 
-        IsBusy = true;
-        StatusText = "Syncing...";
+        IsBusy = !quiet;
+        StatusText = quiet ? StatusText : "Syncing...";
 
         try
         {
@@ -80,11 +84,14 @@ public sealed partial class MainViewModel : ObservableObject
 
             MessageCache.Replace(account.Id, folderFullName, live);
 
+            var newCount = live.Count - _rows.Count;
             _dispatcher.TryEnqueue(() =>
             {
                 _rows = live;
                 BuildListNodes();
-                StatusText = $"{live.Count} message(s)";
+                StatusText = quiet && newCount > 0 ? $"{newCount} new message(s)"
+                    : quiet ? StatusText
+                    : $"{live.Count} message(s)";
                 IsBusy = false;
             });
         }
@@ -209,9 +216,9 @@ public sealed partial class MainViewModel : ObservableObject
         IsBusy = false;
     }
 
-    public Task RefreshAsync() =>
+    public Task RefreshAsync(bool quiet = false) =>
         CurrentAccount is { } acc && CurrentFolder.Length > 0
-            ? OpenFolderAsync(acc, CurrentFolder, FolderTitle)
+            ? OpenFolderAsync(acc, CurrentFolder, FolderTitle, quiet)
             : Task.CompletedTask;
 
     // ----- list grouping -----

@@ -10,6 +10,10 @@ public sealed class AppSettingsData
     public string LastAccountId { get; set; } = string.Empty;
     public string LastFolder { get; set; } = string.Empty;
     public string LastFolderTitle { get; set; } = string.Empty;
+
+    /// Pane widths in pixels (0 = use the built-in default).
+    public double RailWidth { get; set; }
+    public double ListWidth { get; set; }
 }
 
 public static class AppSettings

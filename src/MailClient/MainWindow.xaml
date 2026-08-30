@@ -252,6 +252,13 @@
                             </Button>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                            <Button x:Name="AddToCalendarButton" Click="AddToCalendar_Click" Visibility="Collapsed"
+                                    Style="{ThemeResource AccentButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE787;" FontSize="14" />
+                                    <TextBlock x:Name="AddToCalendarText" Text="Add to calendar" />
+                                </StackPanel>
+                            </Button>
                             <Button x:Name="LoadImagesButton" Click="LoadImages_Click" Visibility="Collapsed">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xEB9F;" FontSize="14" /><TextBlock Text="Load remote images" />
@@ -404,8 +411,40 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="Calendar" FontWeight="SemiBold" Margin="12,10,12,4" />
-                <CalendarView Grid.Row="1" x:Name="RailCalendar" Margin="8,4,8,8"
-                              VerticalAlignment="Top" HorizontalAlignment="Stretch" />
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="8" Padding="8,4,8,12">
+                        <CalendarView x:Name="RailCalendar" HorizontalAlignment="Stretch"
+                                      SelectionMode="Single"
+                                      SelectedDatesChanged="RailCalendar_SelectedDatesChanged"
+                                      CalendarViewDayItemChanging="RailCalendar_DayItemChanging" />
+                        <TextBlock x:Name="CalendarDayHeader" FontWeight="SemiBold" FontSize="12" Margin="4,4,0,0" />
+                        <ItemsControl x:Name="CalendarDayEvents">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="8,6" Margin="0,0,0,4" ColumnSpacing="6"
+                                          Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Notes}" FontSize="11" Opacity="0.6"
+                                                       MaxLines="2" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Padding="4" Background="Transparent" BorderThickness="0"
+                                                Tag="{Binding Id}" Click="CalendarEventDelete_Click"
+                                                ToolTipService.ToolTip="Remove">
+                                            <FontIcon Glyph="&#xE74D;" FontSize="11" />
+                                        </Button>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="CalendarDayEmpty" Text="No events" FontSize="11" Opacity="0.5" Margin="4,0,0,0" />
+                    </StackPanel>
+                </ScrollViewer>
             </Grid>
         </Grid>
     </Grid>

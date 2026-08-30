@@ -26,9 +26,13 @@ public sealed partial class MainWindow : Window
     private readonly MainViewModel _vm;
     private readonly ObservableCollection<MailNode> _railNodes = new();
 
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(2);
+
     private MailAccount? _composeAccount;
     private MailMessageContent? _composeSource;
     private bool _restoredLastFolder;
+    private CalendarSuggestion? _currentSuggestion;
+    private DispatcherTimer? _pollTimer;
 
     public MainWindow()
     {
@@ -45,15 +49,46 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 200, max: 460);
-        _ = new ColumnSplitterController(ReadingSplitter, ListColumn, invert: false, min: 280, max: 620);
+        var settings = AppSettings.Current;
+        if (settings.RailWidth >= 200)
+        {
+            RailColumn.Width = new GridLength(settings.RailWidth);
+        }
+
+        if (settings.ListWidth >= 280)
+        {
+            ListColumn.Width = new GridLength(settings.ListWidth);
+        }
+
+        _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 200, max: 460,
+            onResized: w => AppSettings.Update(s => s.RailWidth = w));
+        _ = new ColumnSplitterController(ReadingSplitter, ListColumn, invert: false, min: 280, max: 620,
+            onResized: w => AppSettings.Update(s => s.ListWidth = w));
 
         AccountStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(BuildTree);
-        Closed += (_, _) => MailService.DisconnectAll();
+        CalendarStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(RefreshCalendarDay);
+        Closed += (_, _) =>
+        {
+            _pollTimer?.Stop();
+            MailService.DisconnectAll();
+        };
 
-        ApplyCalendarVisibility(AppSettings.Current.CalendarVisible);
+        ApplyCalendarVisibility(settings.CalendarVisible);
 
-        RootGrid.Loaded += (_, _) => BuildTree();
+        RootGrid.Loaded += (_, _) =>
+        {
+            BuildTree();
+            RailCalendar.SetDisplayDate(DateTimeOffset.Now);
+            RefreshCalendarDay();
+            StartPolling();
+        };
+    }
+
+    private void StartPolling()
+    {
+        _pollTimer = new DispatcherTimer { Interval = PollInterval };
+        _pollTimer.Tick += async (_, _) => await _vm.RefreshAsync(quiet: true);
+        _pollTimer.Start();
     }
 
     // ----- rail tree -----
@@ -90,6 +125,10 @@ public sealed partial class MainWindow : Window
             }
 
             _railNodes.Add(node);
+
+            // Open the last-used folder straight from the local cache before any sync happens.
+            TryRestoreLastFolder(account, node);
+
             _ = LoadFoldersAsync(node);
         }
     }
@@ -348,6 +387,97 @@ public sealed partial class MainWindow : Window
         CalendarColumn.Width = visible ? new GridLength(336) : new GridLength(0);
     }
 
+    private void RailCalendar_SelectedDatesChanged(CalendarView sender, CalendarViewSelectedDatesChangedEventArgs args) =>
+        RefreshCalendarDay();
+
+    private void RailCalendar_DayItemChanging(CalendarView sender, CalendarViewDayItemChangingEventArgs args)
+    {
+        if (args.Phase == 0)
+        {
+            args.Item.SetDensityColors(CalendarStore.AnyOn(args.Item.Date)
+                ? new[] { (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"] }
+                : null);
+        }
+    }
+
+    private void CalendarEventDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            CalendarStore.Remove(id);
+        }
+    }
+
+    private void RefreshCalendarDay()
+    {
+        var day = RailCalendar.SelectedDates.Count > 0 ? RailCalendar.SelectedDates[0] : DateTimeOffset.Now;
+        var events = CalendarStore.ForDay(day);
+
+        CalendarDayHeader.Text = day.LocalDateTime.ToString("dddd, d MMM yyyy");
+        CalendarDayEvents.ItemsSource = events;
+        CalendarDayEmpty.Visibility = events.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Nudge the day items so their event-density dots repaint.
+        RailCalendar.SetDisplayDate(day);
+    }
+
+    private async void AddToCalendar_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentSuggestion is not { } suggestion)
+        {
+            return;
+        }
+
+        var titleBox = new TextBox { Header = "Title", Text = suggestion.Title };
+        var datePicker = new CalendarDatePicker { Header = "Date", Date = suggestion.Date };
+        var notesBox = new TextBox
+        {
+            Header = "Notes",
+            Text = _vm.CurrentMessage?.Subject ?? string.Empty,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Height = 84,
+        };
+
+        var panel = new StackPanel { Spacing = 10, Width = 320 };
+        panel.Children.Add(titleBox);
+        panel.Children.Add(datePicker);
+        panel.Children.Add(notesBox);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Add calendar event",
+            Content = panel,
+            PrimaryButtonText = "Add",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var date = datePicker.Date ?? suggestion.Date;
+        CalendarStore.Add(new CalendarEvent
+        {
+            Date = date,
+            Title = string.IsNullOrWhiteSpace(titleBox.Text) ? suggestion.Title : titleBox.Text.Trim(),
+            Notes = notesBox.Text.Trim(),
+        });
+
+        if (CalendarPane.Visibility != Visibility.Visible)
+        {
+            ApplyCalendarVisibility(true);
+            AppSettings.Update(s => s.CalendarVisible = true);
+        }
+
+        RailCalendar.SelectedDates.Clear();
+        RailCalendar.SelectedDates.Add(date);
+        RefreshCalendarDay();
+    }
+
     // ----- message list / reading -----
 
     private enum ReadingMode { Empty, Message, Compose, Preview }
@@ -419,6 +549,13 @@ public sealed partial class MainWindow : Window
             msg.HadRemoteContent && msg.RemoteContentAllowed && !domainAlreadyAllowed && domain.Length > 0
                 ? Visibility.Visible : Visibility.Collapsed;
         AlwaysLoadImagesText.Text = $"Always load images from {domain}";
+
+        _currentSuggestion = DateActionScanner.Scan(msg.Subject, msg.PlainText ?? StripHtml(msg.Html), msg.FromAddress);
+        AddToCalendarButton.Visibility = _currentSuggestion is null ? Visibility.Collapsed : Visibility.Visible;
+        if (_currentSuggestion is { } sg)
+        {
+            AddToCalendarText.Text = $"Add to calendar: {sg.Title} ({sg.Date.LocalDateTime:d MMM})";
+        }
 
         if (msg.Html is { } html)
         {
