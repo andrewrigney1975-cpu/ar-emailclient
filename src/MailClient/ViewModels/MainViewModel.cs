@@ -91,15 +91,26 @@ public sealed partial class MainViewModel : ObservableObject
 
             MessageCache.Replace(account.Id, folderFullName, live);
 
-            var newCount = live.Count - _rows.Count;
+            var known = _rows.Select(r => r.Uid).ToHashSet();
+            var fresh = live.Where(r => !known.Contains(r.Uid)).OrderByDescending(r => r.Date).ToList();
+
             _dispatcher.TryEnqueue(() =>
             {
                 _rows = live;
                 BuildListNodes();
-                StatusText = quiet && newCount > 0 ? $"{newCount} new message(s)"
+                StatusText = quiet && fresh.Count > 0 ? $"{fresh.Count} new message(s)"
                     : quiet ? StatusText
                     : $"{live.Count} message(s)";
                 IsBusy = false;
+
+                if (quiet && fresh.Count > 0)
+                {
+                    var newest = fresh[0];
+                    var body = fresh.Count == 1
+                        ? $"{newest.From}: {newest.SubjectDisplay}"
+                        : $"{fresh.Count} new messages in {title}";
+                    NotificationService.Show("New mail", body);
+                }
             });
         }
         catch (OperationCanceledException)
@@ -255,7 +266,9 @@ public sealed partial class MainViewModel : ObservableObject
             BuildListNodes();
         }
 
-        StatusText = "Marked all as read";
+        StatusText = $"Marked {targets.Count} as read";
+        NotificationService.Show("Mail",
+            $"{targets.Count} message{(targets.Count == 1 ? "" : "s")} marked as read");
     }
 
     /// Cross-account view of every unread cached message.

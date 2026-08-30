@@ -14,6 +14,9 @@ public sealed class AppSettingsData
     /// Pane widths in pixels (0 = use the built-in default).
     public double RailWidth { get; set; }
     public double ListWidth { get; set; }
+
+    /// Calendar-event ids we've already shown a "1 day away" reminder toast for.
+    public List<string> NotifiedReminderIds { get; set; } = new();
 }
 
 public static class AppSettings

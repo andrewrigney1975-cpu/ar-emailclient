@@ -22,6 +22,7 @@ public partial class App : Application
     {
         try
         {
+            Services.NotificationService.Register();
             _window = new MainWindow();
             _window.Activate();
         }

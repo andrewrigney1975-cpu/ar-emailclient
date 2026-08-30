@@ -66,11 +66,16 @@ public sealed partial class MainWindow : Window
             onResized: w => AppSettings.Update(s => s.ListWidth = w));
 
         AccountStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(BuildTree);
-        CalendarStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(RefreshCalendarDay);
+        CalendarStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshCalendarDay();
+            CheckEventReminders();
+        });
         Closed += (_, _) =>
         {
             _pollTimer?.Stop();
             MailService.DisconnectAll();
+            NotificationService.Unregister();
         };
 
         ApplyCalendarVisibility(settings.CalendarVisible);
@@ -80,6 +85,7 @@ public sealed partial class MainWindow : Window
             BuildTree();
             RailCalendar.SetDisplayDate(DateTimeOffset.Now);
             RefreshCalendarDay();
+            CheckEventReminders();
             StartPolling();
         };
     }
@@ -87,8 +93,44 @@ public sealed partial class MainWindow : Window
     private void StartPolling()
     {
         _pollTimer = new DispatcherTimer { Interval = PollInterval };
-        _pollTimer.Tick += async (_, _) => await _vm.RefreshAsync(quiet: true);
+        _pollTimer.Tick += async (_, _) =>
+        {
+            await _vm.RefreshAsync(quiet: true);
+            CheckEventReminders();
+        };
         _pollTimer.Start();
+    }
+
+    /// Toast for any calendar event that is exactly one day away, once per event.
+    private void CheckEventReminders()
+    {
+        var tomorrow = DateTime.Today.AddDays(1);
+        var alreadyNotified = AppSettings.Current.NotifiedReminderIds;
+
+        var due = CalendarStore.All
+            .Where(ev => ev.Date.LocalDateTime.Date == tomorrow && !alreadyNotified.Contains(ev.Id))
+            .ToList();
+
+        if (due.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var ev in due)
+        {
+            NotificationService.Show("Reminder — tomorrow", $"{ev.Title} ({ev.Date.LocalDateTime:ddd d MMM})");
+        }
+
+        AppSettings.Update(s =>
+        {
+            foreach (var ev in due)
+            {
+                if (!s.NotifiedReminderIds.Contains(ev.Id))
+                {
+                    s.NotifiedReminderIds.Add(ev.Id);
+                }
+            }
+        });
     }
 
     // ----- rail tree -----
