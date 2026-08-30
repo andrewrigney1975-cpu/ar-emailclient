@@ -5,7 +5,7 @@ namespace MailClient;
 
 public partial class App : Application
 {
-    private Window? _window;
+    private MainWindow? _window;
 
     public App()
     {
@@ -35,6 +35,27 @@ public partial class App : Application
         }
     }
 
+    /// Called (on a background thread) by Program when another launch is redirected here - e.g. a
+    /// "new mail" toast clicked while the app is already running.
+    public static void HandleActivation(Microsoft.Windows.AppLifecycle.AppActivationArguments args)
+    {
+        if (Current is not App { _window: { } window })
+        {
+            return;
+        }
+
+        window.DispatcherQueue.TryEnqueue(() =>
+        {
+            window.BringToForeground();
+            if (args.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.AppNotification &&
+                args.Data is Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs n &&
+                Services.NotificationService.ParseMailRef(n.Arguments) is { } mail)
+            {
+                window.OpenFromNotification(mail);
+            }
+        });
+    }
+
     /// If the app was started (cold) by clicking a "new mail" toast, open that message.
     private void RouteNotificationLaunch()
     {
@@ -44,7 +65,7 @@ public partial class App : Application
             if (activation.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.AppNotification &&
                 activation.Data is Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs n &&
                 Services.NotificationService.ParseMailRef(n.Arguments) is { } mail &&
-                _window is MainWindow mainWindow)
+                _window is { } mainWindow)
             {
                 mainWindow.OpenFromNotification(mail);
             }

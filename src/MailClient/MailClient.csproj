@@ -20,6 +20,9 @@
     <AssemblyName>winui3-mailclient</AssemblyName>
     <Product>WinUI3 Mail</Product>
     <AssemblyTitle>WinUI3 Mail</AssemblyTitle>
+    <!-- Custom entry point (Program.cs) for single-instance activation. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <StartupObject>MailClient.Program</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>

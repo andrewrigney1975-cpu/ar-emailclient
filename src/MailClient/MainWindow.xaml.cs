@@ -159,7 +159,7 @@ public sealed partial class MainWindow : Window
         await RenderCurrentMessageAsync();
     }
 
-    private void BringToForeground()
+    internal void BringToForeground()
     {
         try
         {
