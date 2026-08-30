@@ -340,6 +340,56 @@
                         </StackPanel>
                     </Grid>
                 </Grid>
+
+                <!-- In-app attachment preview (Quick Look) -->
+                <Grid x:Name="ReadingPreview" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Padding="10,8" ColumnSpacing="8"
+                          BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Click="PreviewBack_Click" ToolTipService.ToolTip="Back to message">
+                            <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                        </Button>
+                        <TextBlock Grid.Column="1" x:Name="PreviewTitle" VerticalAlignment="Center"
+                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                            <Button Click="PreviewOpenExternal_Click" ToolTipService.ToolTip="Open in default app">
+                                <FontIcon Glyph="&#xE8A7;" FontSize="14" />
+                            </Button>
+                            <Button Click="PreviewSave_Click" ToolTipService.ToolTip="Save as…">
+                                <FontIcon Glyph="&#xE896;" FontSize="14" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" x:Name="PreviewImageScroller" Visibility="Collapsed"
+                                  ZoomMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                        <Image x:Name="PreviewImage" Stretch="Uniform" />
+                    </ScrollViewer>
+
+                    <WebView2 Grid.Row="1" x:Name="PreviewWeb" Visibility="Collapsed" />
+
+                    <ScrollViewer Grid.Row="1" x:Name="PreviewTextScroller" Visibility="Collapsed" Padding="16">
+                        <TextBlock x:Name="PreviewText" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                   FontFamily="Cascadia Mono, Consolas" FontSize="12" />
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="1" x:Name="PreviewFallback" Visibility="Collapsed"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                        <FontIcon Glyph="&#xE723;" FontSize="40" Opacity="0.35" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="PreviewFallbackText" Opacity="0.6" HorizontalAlignment="Center" />
+                        <Button Content="Open in default app" Click="PreviewOpenExternal_Click"
+                                HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <Rectangle Grid.Column="6" x:Name="CalendarSplitter" Width="6" HorizontalAlignment="Stretch"

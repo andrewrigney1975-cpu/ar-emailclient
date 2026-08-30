@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using MimeKit;
 using Windows.Storage;
@@ -349,13 +350,14 @@ public sealed partial class MainWindow : Window
 
     // ----- message list / reading -----
 
-    private enum ReadingMode { Empty, Message, Compose }
+    private enum ReadingMode { Empty, Message, Compose, Preview }
 
     private void ShowReading(ReadingMode mode)
     {
         ReadingEmpty.Visibility = mode == ReadingMode.Empty ? Visibility.Visible : Visibility.Collapsed;
         ReadingContent.Visibility = mode == ReadingMode.Message ? Visibility.Visible : Visibility.Collapsed;
         ReadingCompose.Visibility = mode == ReadingMode.Compose ? Visibility.Visible : Visibility.Collapsed;
+        ReadingPreview.Visibility = mode == ReadingMode.Preview ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void MessageTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
@@ -390,7 +392,8 @@ public sealed partial class MainWindow : Window
         var msg = _vm.CurrentMessage;
         if (msg is null)
         {
-            if (ReadingCompose.Visibility != Visibility.Visible)
+            if (ReadingCompose.Visibility != Visibility.Visible &&
+                ReadingPreview.Visibility != Visibility.Visible)
             {
                 ShowReading(ReadingMode.Empty);
             }
@@ -463,36 +466,124 @@ public sealed partial class MainWindow : Window
 
     // ----- attachments -----
 
+    private string? _previewName;
+    private byte[]? _previewData;
+    private string? _previewTempPath;
+
     private async void AttachmentPreview_Click(object sender, RoutedEventArgs e)
     {
         var (name, data) = await FetchAttachmentAsync(sender);
-        if (data is null)
+        if (data is null || name is null)
+        {
+            return;
+        }
+
+        _previewName = name;
+        _previewData = data;
+        _previewTempPath = null;
+        PreviewTitle.Text = name;
+
+        PreviewImageScroller.Visibility = Visibility.Collapsed;
+        PreviewImage.Source = null;
+        PreviewWeb.Visibility = Visibility.Collapsed;
+        PreviewTextScroller.Visibility = Visibility.Collapsed;
+        PreviewFallback.Visibility = Visibility.Collapsed;
+
+        var ext = IoPath.GetExtension(name).ToLowerInvariant();
+        try
+        {
+            if (ext is ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" or ".tif" or ".tiff" or ".ico")
+            {
+                PreviewImage.Source = new BitmapImage(new Uri(await PreviewTempFileAsync()));
+                PreviewImageScroller.Visibility = Visibility.Visible;
+            }
+            else if (ext is ".pdf" or ".html" or ".htm" or ".svg")
+            {
+                await PreviewWeb.EnsureCoreWebView2Async();
+                PreviewWeb.Source = new Uri(await PreviewTempFileAsync());
+                PreviewWeb.Visibility = Visibility.Visible;
+            }
+            else if (ext is ".txt" or ".csv" or ".log" or ".md" or ".json" or ".xml" or ".ini"
+                     or ".yml" or ".yaml" or ".cs" or ".js" or ".ts" or ".py" or ".c" or ".h" or ".cpp")
+            {
+                var text = System.Text.Encoding.UTF8.GetString(data);
+                PreviewText.Text = text.Length > 200_000 ? text[..200_000] + "\n…" : text;
+                PreviewTextScroller.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                PreviewFallbackText.Text = $"No in-app preview for {(ext.Length > 1 ? ext : "this")} files.";
+                PreviewFallback.Visibility = Visibility.Visible;
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.AttachmentPreview_Click", ex);
+            PreviewFallbackText.Text = "Couldn't render a preview: " + ex.Message;
+            PreviewFallback.Visibility = Visibility.Visible;
+        }
+
+        ShowReading(ReadingMode.Preview);
+    }
+
+    /// Writes the current preview payload to a temp file once, returning its path.
+    private async Task<string> PreviewTempFileAsync()
+    {
+        if (_previewTempPath is not null)
+        {
+            return _previewTempPath;
+        }
+
+        var path = IoPath.Combine(IoPath.GetTempPath(), "WinUI3Mail", _previewName!);
+        IoDirectory.CreateDirectory(IoPath.GetDirectoryName(path)!);
+        await IoFile.WriteAllBytesAsync(path, _previewData!);
+        return _previewTempPath = path;
+    }
+
+    private void PreviewBack_Click(object sender, RoutedEventArgs e)
+    {
+        PreviewWeb.Source = new Uri("about:blank");
+        PreviewImage.Source = null;
+        ShowReading(_vm.HasMessage ? ReadingMode.Message : ReadingMode.Empty);
+    }
+
+    private async void PreviewOpenExternal_Click(object sender, RoutedEventArgs e)
+    {
+        if (_previewData is null)
         {
             return;
         }
 
         try
         {
-            var path = IoPath.Combine(IoPath.GetTempPath(), "WinUI3Mail", name!);
-            IoDirectory.CreateDirectory(IoPath.GetDirectoryName(path)!);
-            await IoFile.WriteAllBytesAsync(path, data);
-            await Launcher.LaunchFileAsync(await StorageFile.GetFileFromPathAsync(path));
+            await Launcher.LaunchFileAsync(await StorageFile.GetFileFromPathAsync(await PreviewTempFileAsync()));
         }
         catch (Exception ex)
         {
-            LoggingService.Warn("MainWindow.AttachmentPreview_Click", ex);
-            await ShowErrorAsync("Couldn't preview attachment", ex.Message);
+            LoggingService.Warn("MainWindow.PreviewOpenExternal_Click", ex);
+            await ShowErrorAsync("Couldn't open attachment", ex.Message);
+        }
+    }
+
+    private async void PreviewSave_Click(object sender, RoutedEventArgs e)
+    {
+        if (_previewName is not null && _previewData is not null)
+        {
+            await SaveBytesAsync(_previewName, _previewData);
         }
     }
 
     private async void AttachmentDownload_Click(object sender, RoutedEventArgs e)
     {
         var (name, data) = await FetchAttachmentAsync(sender);
-        if (data is null)
+        if (data is not null && name is not null)
         {
-            return;
+            await SaveBytesAsync(name, data);
         }
+    }
 
+    private async Task SaveBytesAsync(string name, byte[] data)
+    {
         try
         {
             var picker = new FileSavePicker { SuggestedStartLocation = PickerLocationId.Downloads };
