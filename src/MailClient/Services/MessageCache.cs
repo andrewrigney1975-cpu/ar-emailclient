@@ -41,8 +41,12 @@ public static class MessageCache
 
                 CREATE TABLE IF NOT EXISTS Folders (
                     AccountId TEXT NOT NULL, FullName TEXT NOT NULL, Name TEXT NOT NULL,
-                    Unread INTEGER NOT NULL, Ord INTEGER NOT NULL,
+                    Unread INTEGER NOT NULL, Ord INTEGER NOT NULL, Role TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (AccountId, FullName));
+
+                CREATE TABLE IF NOT EXISTS Favourites (
+                    AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
+                    PRIMARY KEY (AccountId, Folder, Uid));
 
                 CREATE TABLE IF NOT EXISTS Tags (
                     AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL, Tag TEXT NOT NULL,
@@ -54,6 +58,19 @@ public static class MessageCache
                 CREATE INDEX IF NOT EXISTS IX_Tags_Tag ON Tags (Tag);
                 """;
             cmd.ExecuteNonQuery();
+
+            // Migrate older Folders tables that predate the Role column.
+            try
+            {
+                using var alter = conn.CreateCommand();
+                alter.CommandText = "ALTER TABLE Folders ADD COLUMN Role TEXT NOT NULL DEFAULT ''";
+                alter.ExecuteNonQuery();
+            }
+            catch (SqliteException)
+            {
+                // column already exists
+            }
+
             _initialised = true;
         }
     }
@@ -148,7 +165,9 @@ public static class MessageCache
         {
             using var conn = Open();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM Summaries WHERE AccountId = @a; DELETE FROM Folders WHERE AccountId = @a;";
+            cmd.CommandText =
+                "DELETE FROM Summaries WHERE AccountId = @a; DELETE FROM Folders WHERE AccountId = @a; " +
+                "DELETE FROM Favourites WHERE AccountId = @a; DELETE FROM Tags WHERE AccountId = @a;";
             cmd.Parameters.AddWithValue("@a", accountId);
             cmd.ExecuteNonQuery();
         }
@@ -160,7 +179,7 @@ public static class MessageCache
 
     // ----- folders -----
 
-    public sealed record CachedFolder(string FullName, string Name, int Unread);
+    public sealed record CachedFolder(string FullName, string Name, int Unread, string Role = "");
 
     public static List<CachedFolder> LoadFolders(string accountId)
     {
@@ -168,14 +187,15 @@ public static class MessageCache
         {
             using var conn = Open();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT FullName, Name, Unread FROM Folders WHERE AccountId = @a ORDER BY Ord";
+            cmd.CommandText = "SELECT FullName, Name, Unread, Role FROM Folders WHERE AccountId = @a ORDER BY Ord";
             cmd.Parameters.AddWithValue("@a", accountId);
 
             var rows = new List<CachedFolder>();
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                rows.Add(new CachedFolder(reader.GetString(0), reader.GetString(1), (int)reader.GetInt64(2)));
+                rows.Add(new CachedFolder(reader.GetString(0), reader.GetString(1), (int)reader.GetInt64(2),
+                    reader.IsDBNull(3) ? string.Empty : reader.GetString(3)));
             }
 
             return rows;
@@ -202,8 +222,8 @@ public static class MessageCache
             }
 
             using var ins = conn.CreateCommand();
-            ins.CommandText = "INSERT INTO Folders VALUES (@a, @fn, @n, @u, @o)";
-            foreach (var p in new[] { "@a", "@fn", "@n", "@u", "@o" })
+            ins.CommandText = "INSERT INTO Folders VALUES (@a, @fn, @n, @u, @o, @r)";
+            foreach (var p in new[] { "@a", "@fn", "@n", "@u", "@o", "@r" })
             {
                 ins.Parameters.Add(new SqliteParameter(p, null));
             }
@@ -215,6 +235,7 @@ public static class MessageCache
                 ins.Parameters["@n"].Value = folders[i].Name;
                 ins.Parameters["@u"].Value = folders[i].Unread;
                 ins.Parameters["@o"].Value = i;
+                ins.Parameters["@r"].Value = folders[i].Role;
                 ins.ExecuteNonQuery();
             }
 
@@ -262,6 +283,148 @@ public static class MessageCache
         catch (SqliteException ex)
         {
             LoggingService.Warn("MessageCache.LoadUnread", ex);
+            return new List<MessageRow>();
+        }
+    }
+
+    private static MessageRow ReadFullRow(SqliteDataReader r) => new()
+    {
+        AccountId = r.GetString(0),
+        Folder = r.GetString(1),
+        Uid = (uint)r.GetInt64(2),
+        From = r.IsDBNull(3) ? string.Empty : r.GetString(3),
+        FromAddress = r.IsDBNull(4) ? string.Empty : r.GetString(4),
+        Subject = r.IsDBNull(5) ? string.Empty : r.GetString(5),
+        Preview = r.IsDBNull(6) ? string.Empty : r.GetString(6),
+        Date = new DateTimeOffset(r.GetInt64(7), TimeSpan.Zero),
+        HasAttachments = r.GetInt64(8) != 0,
+        IsRead = r.GetInt64(9) != 0,
+    };
+
+    private const string FullRowColumns =
+        "s.AccountId, s.Folder, s.Uid, s.FromName, s.FromAddr, s.Subject, s.Preview, " +
+        "s.DateTicks, s.HasAttachments, s.IsRead";
+
+    /// Cross-account messages in every folder tagged with a SPECIAL-USE role ("inbox", "sent", …).
+    public static List<MessageRow> LoadByRole(string role, int limit = 500)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                $"SELECT {FullRowColumns} FROM Summaries s " +
+                "JOIN Folders f ON f.AccountId = s.AccountId AND f.FullName = s.Folder " +
+                "WHERE f.Role = @role ORDER BY s.DateTicks DESC LIMIT @lim";
+            cmd.Parameters.AddWithValue("@role", role);
+            cmd.Parameters.AddWithValue("@lim", limit);
+
+            var rows = new List<MessageRow>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(ReadFullRow(reader));
+            }
+
+            return rows;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.LoadByRole", ex);
+            return new List<MessageRow>();
+        }
+    }
+
+    // ----- favourites -----
+
+    public static event EventHandler? FavouritesChanged;
+
+    public static HashSet<string> FavouriteKeys()
+    {
+        var set = new HashSet<string>();
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT AccountId, Folder, Uid FROM Favourites";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                set.Add($"{reader.GetString(0)}|{reader.GetString(1)}|{reader.GetInt64(2)}");
+            }
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.FavouriteKeys", ex);
+        }
+
+        return set;
+    }
+
+    public static bool IsFavourite(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1 FROM Favourites WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            return cmd.ExecuteScalar() is not null;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.IsFavourite", ex);
+            return false;
+        }
+    }
+
+    public static void SetFavourite(string accountId, string folder, uint uid, bool favourite)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = favourite
+                ? "INSERT OR IGNORE INTO Favourites VALUES (@a, @f, @u)"
+                : "DELETE FROM Favourites WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.ExecuteNonQuery();
+            FavouritesChanged?.Invoke(null, EventArgs.Empty);
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.SetFavourite", ex);
+        }
+    }
+
+    public static List<MessageRow> LoadFavourites(int limit = 500)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                $"SELECT {FullRowColumns} FROM Favourites v " +
+                "JOIN Summaries s ON s.AccountId=v.AccountId AND s.Folder=v.Folder AND s.Uid=v.Uid " +
+                "ORDER BY s.DateTicks DESC LIMIT @lim";
+            cmd.Parameters.AddWithValue("@lim", limit);
+
+            var rows = new List<MessageRow>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(ReadFullRow(reader));
+            }
+
+            return rows;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.LoadFavourites", ex);
             return new List<MessageRow>();
         }
     }

@@ -19,6 +19,9 @@ public partial class MessageRow : ObservableObject
     [ObservableProperty]
     public partial bool IsRead { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsFavourite { get; set; }
+
     public string DateDisplay =>
         Date.LocalDateTime.Date == DateTime.Today ? Date.LocalDateTime.ToString("t")
         : Date.LocalDateTime.Year == DateTime.Today.Year ? Date.LocalDateTime.ToString("d MMM")

@@ -85,6 +85,7 @@ public sealed partial class MainWindow : Window
             RefreshTagNodes();
             RefreshMessageTags();
         });
+        MessageCache.FavouritesChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshFavouriteButton);
         CalendarStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             RefreshCalendarDay();
@@ -306,6 +307,24 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void Favourite_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentOpenRow is { } row &&
+            (_vm.CurrentAccount ?? AccountStore.Find(row.AccountId)) is { } account)
+        {
+            _vm.SetFavourite(row, !MessageCache.IsFavourite(account.Id, row.Folder, row.Uid));
+            RefreshFavouriteButton();
+        }
+    }
+
+    private void RefreshFavouriteButton()
+    {
+        var fav = _vm.CurrentOpenRow is { } row &&
+                  (_vm.CurrentAccount ?? AccountStore.Find(row.AccountId)) is { } account &&
+                  MessageCache.IsFavourite(account.Id, row.Folder, row.Uid);
+        FavouriteGlyph.Glyph = fav ? "" : "";
+    }
+
     // ----- rail tree -----
 
     private void BuildTree()
@@ -325,25 +344,23 @@ public sealed partial class MainWindow : Window
             GlyphOverride = "",
             IsExpanded = true,
         };
-        smart.Children.Add(new MailNode
+
+        static MailNode SmartChild(string key, string name, string glyph, bool expanded = true) => new()
         {
             AccountId = "__smart__",
             IsAccount = false,
             IsSmart = true,
-            FolderFullName = "__unread__",
-            DisplayName = "Unread Mail",
-            GlyphOverride = "",
-        });
-        smart.Children.Add(new MailNode
-        {
-            AccountId = "__smart__",
-            IsAccount = false,
-            IsSmart = true,
-            FolderFullName = "__tags__",
-            DisplayName = "Tags",
-            GlyphOverride = "",
-            IsExpanded = false,
-        });
+            FolderFullName = key,
+            DisplayName = name,
+            GlyphOverride = glyph,
+            IsExpanded = expanded,
+        };
+
+        smart.Children.Add(SmartChild("__inbox__", "Inbox", ""));
+        smart.Children.Add(SmartChild("__unread__", "Unread Mail", ""));
+        smart.Children.Add(SmartChild("__sent__", "Sent Items", ""));
+        smart.Children.Add(SmartChild("__favourites__", "Favourites", ""));
+        smart.Children.Add(SmartChild("__tags__", "Tags", "", expanded: false));
         _railNodes.Add(smart);
         RefreshTagNodes();
 
@@ -397,7 +414,7 @@ public sealed partial class MainWindow : Window
                 .ConfigureAwait(false);
 
             MessageCache.SaveFolders(account.Id,
-                folders.Select(f => new MessageCache.CachedFolder(f.FullName, f.Name, f.Unread)).ToList());
+                folders.Select(f => new MessageCache.CachedFolder(f.FullName, f.Name, f.Unread, f.Role)).ToList());
 
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -556,17 +573,18 @@ public sealed partial class MainWindow : Window
 
         if (node.IsSmart)
         {
-            if (node.FolderFullName == "__unread__")
+            switch (node.FolderFullName)
             {
-                await _vm.ShowUnreadAsync();
-                await RenderCurrentMessageAsync();
-            }
-            else if (node.FolderFullName.StartsWith("__tag__:", StringComparison.Ordinal))
-            {
-                await _vm.ShowTagAsync(node.FolderFullName["__tag__:".Length..]);
-                await RenderCurrentMessageAsync();
+                case "__unread__": await _vm.ShowUnreadAsync(); break;
+                case "__inbox__": await _vm.ShowRoleAsync("inbox", "Inbox"); break;
+                case "__sent__": await _vm.ShowRoleAsync("sent", "Sent Items"); break;
+                case "__favourites__": await _vm.ShowFavouritesAsync(); break;
+                case { } f when f.StartsWith("__tag__:", StringComparison.Ordinal):
+                    await _vm.ShowTagAsync(f["__tag__:".Length..]); break;
+                default: return;
             }
 
+            await RenderCurrentMessageAsync();
             return;
         }
 
@@ -805,6 +823,12 @@ public sealed partial class MainWindow : Window
             flyout.Items.Add(unread);
 
             flyout.Items.Add(new MenuFlyoutSeparator());
+
+            var fav = MessageCache.IsFavourite(row.AccountId, row.Folder, row.Uid);
+            var favItem = new MenuFlyoutItem { Text = fav ? "Remove from favourites" : "Add to favourites" };
+            favItem.Click += (_, _) => _vm.SetFavourite(row, !fav);
+            flyout.Items.Add(favItem);
+
             var addTag = new MenuFlyoutItem { Text = "Add tag…" };
             addTag.Click += async (_, _) => await AddTagToRowAsync(row);
             flyout.Items.Add(addTag);
@@ -908,6 +932,7 @@ public sealed partial class MainWindow : Window
         }
 
         RefreshMessageTags();
+        RefreshFavouriteButton();
 
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);

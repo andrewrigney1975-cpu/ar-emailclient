@@ -275,6 +275,69 @@ public sealed partial class MainViewModel : ObservableObject
             $"{targets.Count} message{(targets.Count == 1 ? "" : "s")} marked as read");
     }
 
+    /// Cross-account view of every folder with a given SPECIAL-USE role ("inbox", "sent").
+    public async Task ShowRoleAsync(string role, string title)
+    {
+        _listCts.Cancel();
+        _listCts = new CancellationTokenSource();
+
+        CurrentAccount = null;
+        CurrentFolder = string.Empty;
+        SmartView = role;
+        CurrentMessage = null;
+        CurrentOpenRow = null;
+        IsBusy = true;
+        StatusText = "Loading…";
+
+        var rows = await Task.Run(() => MessageCache.LoadByRole(role));
+
+        _rows = rows;
+        BuildListNodes();
+        FolderTitle = title;
+        StatusText = $"{rows.Count} message(s)";
+        IsBusy = false;
+    }
+
+    /// Cross-account view of every starred message.
+    public async Task ShowFavouritesAsync()
+    {
+        _listCts.Cancel();
+        _listCts = new CancellationTokenSource();
+
+        CurrentAccount = null;
+        CurrentFolder = string.Empty;
+        SmartView = "favourites";
+        CurrentMessage = null;
+        CurrentOpenRow = null;
+        IsBusy = true;
+        StatusText = "Loading…";
+
+        var rows = await Task.Run(() => MessageCache.LoadFavourites());
+
+        _rows = rows;
+        BuildListNodes();
+        FolderTitle = "Favourites";
+        StatusText = $"{rows.Count} starred";
+        IsBusy = false;
+    }
+
+    public void SetFavourite(MessageRow row, bool favourite)
+    {
+        if (row.IsFavourite == favourite)
+        {
+            return;
+        }
+
+        row.IsFavourite = favourite;
+        MessageCache.SetFavourite(row.AccountId, row.Folder, row.Uid, favourite);
+
+        if (SmartView == "favourites" && !favourite)
+        {
+            _rows.RemoveAll(r => !r.IsFavourite);
+            BuildListNodes();
+        }
+    }
+
     /// Cross-account view of every message carrying a given tag.
     public async Task ShowTagAsync(string tag)
     {
@@ -360,12 +423,17 @@ public sealed partial class MainViewModel : ObservableObject
         IsBusy = false;
     }
 
-    public Task RefreshAsync(bool quiet = false) =>
-        SmartView == "unread" ? ShowUnreadAsync()
-        : SmartView is { } sv && sv.StartsWith("tag:", StringComparison.Ordinal) ? ShowTagAsync(sv[4..])
-        : CurrentAccount is { } acc && CurrentFolder.Length > 0
+    public Task RefreshAsync(bool quiet = false) => SmartView switch
+    {
+        "unread" => ShowUnreadAsync(),
+        "favourites" => ShowFavouritesAsync(),
+        "inbox" => ShowRoleAsync("inbox", FolderTitle),
+        "sent" => ShowRoleAsync("sent", FolderTitle),
+        { } sv when sv.StartsWith("tag:", StringComparison.Ordinal) => ShowTagAsync(sv[4..]),
+        _ => CurrentAccount is { } acc && CurrentFolder.Length > 0
             ? OpenFolderAsync(acc, CurrentFolder, FolderTitle, quiet)
-            : Task.CompletedTask;
+            : Task.CompletedTask,
+    };
 
     // ----- list grouping -----
 
@@ -393,6 +461,12 @@ public sealed partial class MainViewModel : ObservableObject
     {
         LoadGroupState();
         ListNodes.Clear();
+
+        var favourites = MessageCache.FavouriteKeys();
+        foreach (var row in _rows)
+        {
+            row.IsFavourite = favourites.Contains($"{row.AccountId}|{row.Folder}|{row.Uid}");
+        }
 
         var buckets = _rows
             .GroupBy(r => DateBucket(r.Date))

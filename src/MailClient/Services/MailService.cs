@@ -61,7 +61,30 @@ public static class MailService
 
     // ----- folders -----
 
-    public sealed record FolderInfo(string FullName, string Name, string[] Path, int Unread);
+    public sealed record FolderInfo(string FullName, string Name, string[] Path, int Unread, string Role = "");
+
+    /// A SPECIAL-USE role ("inbox", "sent", "drafts", "trash", "junk", "archive") or "".
+    private static string RoleOf(IMailFolder folder)
+    {
+        var a = folder.Attributes;
+        if ((a & FolderAttributes.Sent) != 0) return "sent";
+        if ((a & FolderAttributes.Drafts) != 0) return "drafts";
+        if ((a & FolderAttributes.Trash) != 0) return "trash";
+        if ((a & FolderAttributes.Junk) != 0) return "junk";
+        if ((a & (FolderAttributes.Archive | FolderAttributes.All)) != 0) return "archive";
+
+        // Fall back to the folder name for servers without SPECIAL-USE.
+        return folder.Name.ToLowerInvariant() switch
+        {
+            "inbox" => "inbox",
+            "sent" or "sent mail" or "sent items" or "sent messages" => "sent",
+            "drafts" => "drafts",
+            "trash" or "deleted" or "deleted items" or "bin" => "trash",
+            "junk" or "spam" or "junk email" => "junk",
+            "archive" or "all mail" => "archive",
+            _ => string.Empty,
+        };
+    }
 
     public static async Task<List<FolderInfo>> GetFoldersAsync(MailAccount account, CancellationToken ct)
     {
@@ -81,7 +104,7 @@ public static class MailService
             if (seen.Add(client.Inbox.FullName))
             {
                 await client.Inbox.StatusAsync(StatusItems.Unread, ct);
-                result.Insert(0, new FolderInfo(client.Inbox.FullName, "Inbox", new[] { "Inbox" }, client.Inbox.Unread));
+                result.Insert(0, new FolderInfo(client.Inbox.FullName, "Inbox", new[] { "Inbox" }, client.Inbox.Unread, "inbox"));
             }
 
             return result;
@@ -114,7 +137,9 @@ public static class MailService
             {
                 var sep = folder.DirectorySeparator == '\0' ? '/' : folder.DirectorySeparator;
                 var path = folder.FullName.Split(sep, StringSplitOptions.RemoveEmptyEntries);
-                into.Add(new FolderInfo(folder.FullName, folder.Name, path.Length == 0 ? new[] { folder.Name } : path, folder.Unread));
+                var name = folder.Name.Equals("INBOX", StringComparison.OrdinalIgnoreCase) ? "Inbox" : folder.Name;
+                into.Add(new FolderInfo(folder.FullName, name,
+                    path.Length == 0 ? new[] { name } : path, folder.Unread, RoleOf(folder)));
             }
 
             await AddFolderTreeAsync(folder, into, seen, ct);
