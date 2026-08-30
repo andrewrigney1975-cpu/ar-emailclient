@@ -550,7 +550,7 @@ public sealed partial class MainWindow : Window
                 ? Visibility.Visible : Visibility.Collapsed;
         AlwaysLoadImagesText.Text = $"Always load images from {domain}";
 
-        _currentSuggestion = DateActionScanner.Scan(msg.Subject, msg.PlainText ?? StripHtml(msg.Html), msg.FromAddress);
+        _currentSuggestion = DateActionScanner.Scan(msg.Subject, msg.Html ?? msg.PlainText, msg.FromAddress);
         AddToCalendarButton.Visibility = _currentSuggestion is null ? Visibility.Collapsed : Visibility.Visible;
         if (_currentSuggestion is { } sg)
         {
