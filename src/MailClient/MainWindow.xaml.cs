@@ -86,6 +86,7 @@ public sealed partial class MainWindow : Window
             RefreshMessageTags();
         });
         MessageCache.FavouritesChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshFavouriteButton);
+        Services.Ai.Ai.ReadyChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshSummariseButton);
         MessageCache.FollowsChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             RefreshFlagButton();
@@ -1101,6 +1102,18 @@ public sealed partial class MainWindow : Window
         RefreshFavouriteButton();
         RefreshFlagButton();
         RefreshPriorityBadge();
+        RefreshSummariseButton();
+
+        var cachedSummary = _vm.CurrentOpenRow is { } sRow ? MessageCache.AiSummaryFor(sRow.AccountId, sRow.Folder, sRow.Uid) : null;
+        if (!string.IsNullOrWhiteSpace(cachedSummary))
+        {
+            SummaryText.Text = cachedSummary;
+            SummaryPanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            SummaryPanel.Visibility = Visibility.Collapsed;
+        }
 
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
@@ -1350,6 +1363,66 @@ public sealed partial class MainWindow : Window
     {
         var dialog = new AddAccountDialog { XamlRoot = Content.XamlRoot };
         await dialog.ShowAsync();
+    }
+
+    private async void AiButton_Click(object sender, RoutedEventArgs e)
+    {
+        await new AiSettingsDialog { XamlRoot = Content.XamlRoot }.ShowAsync();
+    }
+
+    private void RefreshSummariseButton()
+    {
+        SummariseButton.Visibility =
+            Services.Ai.Ai.Service.IsReady && _vm.HasMessage ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static string PlainBody(MailMessageContent msg) =>
+        !string.IsNullOrWhiteSpace(msg.PlainText)
+            ? msg.PlainText!
+            : System.Net.WebUtility.HtmlDecode(
+                System.Text.RegularExpressions.Regex.Replace(msg.Html ?? string.Empty, "<[^>]+>", " "));
+
+    private async void Summarise_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentMessage is not { } msg || _vm.CurrentOpenRow is not { } row ||
+            !Services.Ai.Ai.Service.IsReady)
+        {
+            return;
+        }
+
+        SummariseButton.IsEnabled = false;
+        SummariseButtonText.Text = "Summarising…";
+        SummaryPanel.Visibility = Visibility.Visible;
+        SummaryText.Text = string.Empty;
+
+        var prompt = Services.Ai.AiPrompts.Summarise(msg.Subject, msg.FromDisplay, PlainBody(msg));
+        var builder = new System.Text.StringBuilder();
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            await foreach (var piece in Services.Ai.Ai.Service.StreamAsync(prompt, cts.Token))
+            {
+                builder.Append(piece);
+                SummaryText.Text = builder.ToString();
+            }
+
+            var summary = builder.ToString().Trim();
+            if (summary.Length > 0)
+            {
+                MessageCache.SaveAiSummary(row.AccountId, row.Folder, row.Uid, summary);
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.Summarise_Click", ex);
+            SummaryText.Text = "Couldn't summarise: " + ex.Message;
+        }
+        finally
+        {
+            SummariseButton.IsEnabled = true;
+            SummariseButtonText.Text = "Summarise";
+        }
     }
 
     private const string EditorPage = """

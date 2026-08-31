@@ -1,0 +1,34 @@
+<ContentDialog
+    x:Class="MailClient.Views.AiSettingsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="On-device AI"
+    CloseButtonText="Close"
+    DefaultButton="Close">
+
+    <ScrollViewer MaxHeight="480">
+        <StackPanel Spacing="12" Width="440">
+            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
+                     Title="Private by design"
+                     Message="AI runs entirely on this PC using a local model. No message content is ever sent anywhere." />
+
+            <ToggleSwitch x:Name="EnableToggle" Header="Enable on-device AI" Toggled="EnableToggle_Toggled" />
+
+            <ComboBox x:Name="ModelBox" Header="Model" HorizontalAlignment="Stretch"
+                      DisplayMemberPath="DisplayName" SelectionChanged="ModelBox_SelectionChanged" />
+
+            <TextBlock x:Name="StatusText" Opacity="0.8" TextWrapping="Wrap" />
+
+            <ProgressBar x:Name="DownloadBar" Minimum="0" Maximum="1" Visibility="Collapsed" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button x:Name="DownloadButton" Content="Download model" Click="Download_Click"
+                        Style="{ThemeResource AccentButtonStyle}" />
+                <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" Visibility="Collapsed" />
+                <Button x:Name="RemoveButton" Content="Remove" Click="Remove_Click" />
+            </StackPanel>
+
+            <InfoBar x:Name="Result" IsOpen="False" IsClosable="False" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

@@ -77,6 +77,11 @@
                     </Button>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Spacing="4" Padding="4,8">
+                    <Button x:Name="AiButton" Style="{StaticResource ActivityBarButtonStyle}"
+                            Click="AiButton_Click" ToolTipService.ToolTip="On-device AI"
+                            AutomationProperties.Name="AI settings">
+                        <FontIcon Glyph="&#xE945;" FontSize="18" />
+                    </Button>
                     <Button x:Name="CalendarToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
                             Click="CalendarToggle_Click" ToolTipService.ToolTip="Show / hide calendar"
                             AutomationProperties.Name="Toggle calendar">
@@ -280,7 +285,23 @@
                                     <TextBlock Text="Tag" FontSize="11" />
                                 </StackPanel>
                             </Button>
+                            <Button x:Name="SummariseButton" Click="Summarise_Click" Padding="6,1"
+                                    Visibility="Collapsed" ToolTipService.ToolTip="Summarise with on-device AI">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE945;" FontSize="10" />
+                                    <TextBlock x:Name="SummariseButtonText" Text="Summarise" FontSize="11" />
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
+
+                        <Border x:Name="SummaryPanel" Visibility="Collapsed" Margin="0,8,0,0" Padding="10,8"
+                                CornerRadius="4" Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="AI summary" FontSize="10" Opacity="0.6" />
+                                <TextBlock x:Name="SummaryText" FontSize="12" TextWrapping="Wrap"
+                                           IsTextSelectionEnabled="True" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <Grid Grid.Row="1" Padding="12,6" ColumnSpacing="6"

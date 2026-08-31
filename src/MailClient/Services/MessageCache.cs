@@ -62,6 +62,11 @@ public static class MessageCache
                     ON Summaries (AccountId, DateTicks DESC);
 
                 CREATE INDEX IF NOT EXISTS IX_Tags_Tag ON Tags (Tag);
+
+                CREATE TABLE IF NOT EXISTS AiSummaries (
+                    AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
+                    Summary TEXT NOT NULL,
+                    PRIMARY KEY (AccountId, Folder, Uid));
                 """;
             cmd.ExecuteNonQuery();
 
@@ -184,7 +189,7 @@ public static class MessageCache
             cmd.CommandText =
                 "DELETE FROM Summaries WHERE AccountId = @a; DELETE FROM Folders WHERE AccountId = @a; " +
                 "DELETE FROM Favourites WHERE AccountId = @a; DELETE FROM Tags WHERE AccountId = @a; " +
-                "DELETE FROM Follows WHERE AccountId = @a;";
+                "DELETE FROM Follows WHERE AccountId = @a; DELETE FROM AiSummaries WHERE AccountId = @a;";
             cmd.Parameters.AddWithValue("@a", accountId);
             cmd.ExecuteNonQuery();
         }
@@ -607,6 +612,46 @@ public static class MessageCache
         {
             LoggingService.Warn("MessageCache.KnownAddresses", ex);
             return new List<(string, string)>();
+        }
+    }
+
+    // ----- AI summaries -----
+
+    public static string? AiSummaryFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT Summary FROM AiSummaries WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            return cmd.ExecuteScalar() as string;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.AiSummaryFor", ex);
+            return null;
+        }
+    }
+
+    public static void SaveAiSummary(string accountId, string folder, uint uid, string summary)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO AiSummaries VALUES (@a, @f, @u, @s)";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.Parameters.AddWithValue("@s", summary);
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.SaveAiSummary", ex);
         }
     }
 
