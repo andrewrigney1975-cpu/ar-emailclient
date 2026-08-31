@@ -197,18 +197,17 @@
 
                 <TreeView Grid.Row="1" x:Name="MessageTree" SelectionMode="Single"
                           ItemInvoked="MessageTree_ItemInvoked" RightTapped="MessageTree_RightTapped"
-                          KeyDown="MessageTree_KeyDown"
                           AutomationProperties.Name="Messages">
                     <TreeView.ItemTemplate>
                         <DataTemplate>
                             <TreeViewItem ItemsSource="{Binding Children}"
                                           IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
                                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                <Grid Background="{Binding IsSelected, Converter={StaticResource SelBrush}}"
-                                      Padding="2,4,12,4" HorizontalAlignment="Stretch" CornerRadius="4"
+                                <Grid Background="Transparent" Padding="2,4,12,4" HorizontalAlignment="Stretch"
                                       CanDrag="True" DragStarting="MessageRow_DragStarting"
-                                      DropCompleted="Row_DropCompleted"
-                                      Tapped="MessageRow_Tapped">
+                                      DropCompleted="Row_DropCompleted">
+                                    <Border CornerRadius="4" IsHitTestVisible="False" Margin="-2,-2,-8,-2"
+                                            Background="{Binding IsSelected, Converter={StaticResource SelBrush}}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                                                 Visibility="{Binding IsHeader, Converter={StaticResource BoolToVis}}">
                                         <FontIcon Glyph="&#xE8BC;" FontSize="11" Opacity="0.6" VerticalAlignment="Center"

@@ -17,8 +17,11 @@ public sealed partial class MainWindow
 
     private void HookModifierTracking()
     {
-        RootGrid.AddHandler(UIElement.KeyDownEvent,
-            new KeyEventHandler((_, e) => UpdateModifier(e.Key, true)), handledEventsToo: true);
+        RootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
+        {
+            UpdateModifier(e.Key, true);
+            RootGrid_KeyForSelection(e.Key);
+        }), handledEventsToo: true);
         RootGrid.AddHandler(UIElement.KeyUpEvent,
             new KeyEventHandler((_, e) => UpdateModifier(e.Key, false)), handledEventsToo: true);
     }
@@ -83,21 +86,18 @@ public sealed partial class MainWindow
     private List<MessageRow> SelectedRows() =>
         _selection.Where(n => n.Row is not null).Select(n => n.Row!).ToList();
 
-    // Ctrl/Shift click handling. The message still opens (via ItemInvoked) — this only
-    // adjusts which rows are highlighted for bulk actions. Plain taps do nothing here.
-    private void MessageRow_Tapped(object sender, TappedRoutedEventArgs e)
+    // Called from ItemInvoked. Ctrl toggles this row, Shift extends from the anchor,
+    // a plain click drops the multi-selection. Never blocks the message from opening.
+    private void UpdateSelectionForClick(MailListNode node)
     {
-        if ((sender as FrameworkElement)?.DataContext is not MailListNode { Kind: MailListKind.Message } node)
-        {
-            return;
-        }
-
         if (_ctrlHeld)
         {
             SetSelected(node, !node.IsSelected);
             _selectionAnchor = node;
+            return;
         }
-        else if (_shiftHeld && _selectionAnchor is { } anchor)
+
+        if (_shiftHeld && _selectionAnchor is { } anchor)
         {
             var flat = FlatMessageNodes().ToList();
             var a = flat.IndexOf(anchor);
@@ -111,26 +111,42 @@ public sealed partial class MainWindow
                     SetSelected(flat[i], true);
                 }
             }
+
+            return;
         }
+
+        ClearMessageSelection();
+        _selectionAnchor = node;
     }
 
-    private void MessageTree_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void RootGrid_KeyForSelection(VirtualKey key)
     {
-        if (_ctrlHeld && e.Key == VirtualKey.A)
+        if (_ctrlHeld && key == VirtualKey.A && FocusManager.GetFocusedElement(Content.XamlRoot) is DependencyObject focused
+            && IsWithinMessageTree(focused))
         {
             ClearMessageSelection();
             foreach (var n in FlatMessageNodes())
             {
                 SetSelected(n, true);
             }
-
-            e.Handled = true;
         }
-        else if (e.Key == VirtualKey.Escape && _selection.Count > 0)
+        else if (key == VirtualKey.Escape && _selection.Count > 0)
         {
             ClearMessageSelection();
-            e.Handled = true;
         }
+    }
+
+    private bool IsWithinMessageTree(DependencyObject? node)
+    {
+        for (var d = node; d is not null; d = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(d))
+        {
+            if (ReferenceEquals(d, MessageTree))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// If the right-tapped row is part of a multi-selection, append bulk actions and return true.

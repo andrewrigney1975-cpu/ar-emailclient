@@ -1105,13 +1105,17 @@ public sealed partial class MainWindow : Window
 
         if (node.Kind == MailListKind.Message && node.Row is { } row)
         {
-            // A plain click drops any multi-selection; Ctrl/Shift clicks keep it (see MessageRow_Tapped).
-            if (!_ctrlHeld && !_shiftHeld)
-            {
-                ClearMessageSelection();
-            }
+            LoggingService.Info("MainWindow.MessageTree_ItemInvoked", $"open '{row.SubjectDisplay}'");
 
-            _selectionAnchor = node;
+            // Adjust the multi-selection highlight, then ALWAYS open the message.
+            try
+            {
+                UpdateSelectionForClick(node);
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Warn("MainWindow.MessageTree_ItemInvoked (selection)", ex);
+            }
 
             await _vm.OpenMessageAsync(row);
             await RenderCurrentMessageAsync();
