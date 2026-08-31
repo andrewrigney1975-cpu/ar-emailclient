@@ -114,6 +114,55 @@ public static class MailService
         return folders;
     }
 
+    public static async Task CreateFolderAsync(MailAccount account, string parentFullName, string name, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var parent = string.IsNullOrEmpty(parentFullName)
+                ? client.GetFolder(client.PersonalNamespaces[0])
+                : await client.GetFolderAsync(parentFullName, ct);
+            await parent.CreateAsync(name.Trim(), isMessageFolder: true, ct);
+            return true;
+        }, ct);
+    }
+
+    public static async Task RenameFolderAsync(MailAccount account, string folderFullName, string newName, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var folder = await client.GetFolderAsync(folderFullName, ct);
+            await folder.RenameAsync(folder.ParentFolder, newName.Trim(), ct);
+            return true;
+        }, ct);
+    }
+
+    public static async Task MoveFolderAsync(MailAccount account, string folderFullName, string newParentFullName, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var folder = await client.GetFolderAsync(folderFullName, ct);
+            var newParent = string.IsNullOrEmpty(newParentFullName)
+                ? client.GetFolder(client.PersonalNamespaces[0])
+                : await client.GetFolderAsync(newParentFullName, ct);
+            await folder.RenameAsync(newParent, folder.Name, ct);
+            return true;
+        }, ct);
+    }
+
+    public static async Task DeleteFolderAsync(MailAccount account, string folderFullName, CancellationToken ct)
+    {
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var folder = await client.GetFolderAsync(folderFullName, ct);
+            await folder.DeleteAsync(ct);
+            return true;
+        }, ct);
+    }
+
     private static async Task AddFolderTreeAsync(IMailFolder parent, List<FolderInfo> into, HashSet<string> seen, CancellationToken ct)
     {
         IList<IMailFolder> children;

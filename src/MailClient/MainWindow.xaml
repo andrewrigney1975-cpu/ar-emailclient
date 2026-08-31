@@ -125,6 +125,8 @@
                 <TreeView Grid.Row="1" x:Name="MailTree" Margin="4,0,4,4" SelectionMode="Single"
                           ItemInvoked="MailTree_ItemInvoked"
                           RightTapped="MailTree_RightTapped"
+                          CanDragItems="True" DragItemsStarting="MailTree_DragItemsStarting"
+                          DragItemsCompleted="MailTree_DragItemsCompleted"
                           AllowDrop="True" DragOver="MailTree_DragOver" Drop="MailTree_Drop">
                     <TreeView.ItemTemplate>
                         <DataTemplate>

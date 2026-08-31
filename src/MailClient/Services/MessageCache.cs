@@ -213,6 +213,25 @@ public static class MessageCache
         }
     }
 
+    public static void RemoveFolder(string accountId, string folder)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "DELETE FROM Summaries WHERE AccountId=@a AND Folder=@f; " +
+                "DELETE FROM Folders WHERE AccountId=@a AND FullName=@f;";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.RemoveFolder", ex);
+        }
+    }
+
     public static void ClearAccount(string accountId)
     {
         try

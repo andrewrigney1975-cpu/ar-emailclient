@@ -669,7 +669,7 @@ public sealed partial class MainWindow : Window
         var node = (e.OriginalSource as FrameworkElement)?.DataContext as MailNode
                    ?? FindNodeInParents(e.OriginalSource as DependencyObject);
 
-        if (node is not { IsAccount: true } || node.IsSmart)
+        if (node is null || node.IsSmart)
         {
             return;
         }
@@ -683,17 +683,42 @@ public sealed partial class MainWindow : Window
         var element = e.OriginalSource as FrameworkElement ?? MailTree;
         var flyout = new MenuFlyout();
 
-        var reload = new MenuFlyoutItem { Text = "Reload folders" };
-        reload.Click += async (_, _) => await LoadFoldersAsync(node);
-        flyout.Items.Add(reload);
+        if (node.IsAccount)
+        {
+            var newFolder = new MenuFlyoutItem { Text = "New folder…" };
+            newFolder.Click += async (_, _) => await PromptNewFolderAsync(account, string.Empty);
+            flyout.Items.Add(newFolder);
 
-        var edit = new MenuFlyoutItem { Text = "Edit account…" };
-        edit.Click += async (_, _) => await EditAccountAsync(account);
-        flyout.Items.Add(edit);
+            var reload = new MenuFlyoutItem { Text = "Reload folders" };
+            reload.Click += async (_, _) => await LoadFoldersAsync(node);
+            flyout.Items.Add(reload);
 
-        var remove = new MenuFlyoutItem { Text = "Remove account…" };
-        remove.Click += async (_, _) => await RemoveAccountAsync(account);
-        flyout.Items.Add(remove);
+            flyout.Items.Add(new MenuFlyoutSeparator());
+
+            var edit = new MenuFlyoutItem { Text = "Edit account…" };
+            edit.Click += async (_, _) => await EditAccountAsync(account);
+            flyout.Items.Add(edit);
+
+            var remove = new MenuFlyoutItem { Text = "Remove account…" };
+            remove.Click += async (_, _) => await RemoveAccountAsync(account);
+            flyout.Items.Add(remove);
+        }
+        else
+        {
+            var folder = node.FolderFullName;
+
+            var newSub = new MenuFlyoutItem { Text = "New subfolder…" };
+            newSub.Click += async (_, _) => await PromptNewFolderAsync(account, folder);
+            flyout.Items.Add(newSub);
+
+            var rename = new MenuFlyoutItem { Text = "Rename…" };
+            rename.Click += async (_, _) => await PromptRenameFolderAsync(account, node);
+            flyout.Items.Add(rename);
+
+            var del = new MenuFlyoutItem { Text = "Delete folder…" };
+            del.Click += async (_, _) => await PromptDeleteFolderAsync(account, node);
+            flyout.Items.Add(del);
+        }
 
         flyout.ShowAt(element, new FlyoutShowOptions { Position = e.GetPosition(element) });
         e.Handled = true;
