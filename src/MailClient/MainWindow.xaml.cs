@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     private readonly ObservableCollection<OutgoingAttachment> _composeAttachments = new();
     private bool _composeEditorReady;
     private string _pendingEditorHtml = string.Empty;
+    private string _composeBodySuffix = string.Empty;
     private bool _restoredLastFolder;
     private CalendarSuggestion? _currentSuggestion;
     private DispatcherTimer? _pollTimer;
@@ -1655,7 +1656,8 @@ public sealed partial class MainWindow : Window
         var draft = string.IsNullOrWhiteSpace(draftText)
             ? "<p><br></p>"
             : $"<p>{Esc(draftText).Replace("\r\n", "\n").Replace("\n", "<br>")}</p><p><br></p>";
-        var body = draft + signature;
+        _composeBodySuffix = signature;
+
         if (_composeSource is { } src)
         {
             var header = mode == ComposeMode.Forward
@@ -1665,7 +1667,7 @@ public sealed partial class MainWindow : Window
                 : $"On {Esc(src.Date.LocalDateTime.ToString("f"))}, {Esc(src.FromDisplay)} wrote:<br>";
             var original = src.Html is { Length: > 0 } h ? InnerHtmlOnly(h)
                 : $"<pre>{Esc(src.PlainText ?? string.Empty)}</pre>";
-            body = $"{draft}{signature}<p><br></p><blockquote>{header}{original}</blockquote>";
+            _composeBodySuffix = $"{signature}<p><br></p><blockquote>{header}{original}</blockquote>";
 
             switch (mode)
             {
@@ -1691,10 +1693,66 @@ public sealed partial class MainWindow : Window
             _ => "New message",
         };
 
+        ComposePromptBox.Text = string.Empty;
+        ComposePromptBar.Visibility = Services.Ai.Ai.Service.IsReady ? Visibility.Visible : Visibility.Collapsed;
+
         ShowReading(ReadingMode.Compose);
         await EnsureComposeEditorAsync();
-        await SetComposeHtmlAsync(body);
+        await SetComposeHtmlAsync(draft + _composeBodySuffix);
         ComposeTo.Focus(FocusState.Programmatic);
+    }
+
+    private async void ComposePrompt_Click(object sender, RoutedEventArgs e)
+    {
+        var instruction = ComposePromptBox.Text.Trim();
+        if (instruction.Length < 3 || _composeAccount is null || !Services.Ai.Ai.Service.IsReady)
+        {
+            return;
+        }
+
+        ComposePromptButton.IsEnabled = false;
+        ComposePromptButtonText.Text = "Drafting…";
+
+        var prompt = _composeSource is { } src
+            ? Services.Ai.AiPrompts.ComposeReply(instruction, src.Subject, src.FromDisplay, PlainBody(src))
+            : Services.Ai.AiPrompts.ComposeNew(instruction);
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            var raw = await Services.Ai.Ai.Service.CompleteAsync(prompt, cts.Token);
+            LoggingService.Info("MainWindow.ComposePrompt", $"draft {raw.Length} chars (reply={_composeSource is not null})");
+
+            string draftHtml;
+            if (_composeSource is null)
+            {
+                var (subject, bodyText) = Services.Ai.AiComposeParser.ParseNew(raw);
+                if (!string.IsNullOrWhiteSpace(subject) && string.IsNullOrWhiteSpace(ComposeSubject.Text))
+                {
+                    ComposeSubject.Text = subject!;
+                }
+
+                draftHtml = Services.Ai.AiComposeParser.ToHtml(bodyText);
+            }
+            else
+            {
+                draftHtml = Services.Ai.AiComposeParser.ToHtml(raw);
+            }
+
+            await SetComposeHtmlAsync(draftHtml + _composeBodySuffix);
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.ComposePrompt_Click", ex);
+            ComposeStatus.Severity = InfoBarSeverity.Error;
+            ComposeStatus.Message = "Couldn't draft: " + ex.Message;
+            ComposeStatus.IsOpen = true;
+        }
+        finally
+        {
+            ComposePromptButton.IsEnabled = true;
+            ComposePromptButtonText.Text = "Draft";
+        }
     }
 
     private async void ComposeCmd_Click(object sender, RoutedEventArgs e)

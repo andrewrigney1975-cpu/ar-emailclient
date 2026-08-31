@@ -46,4 +46,28 @@ public static class AiPrompts
         MaxTokens = 320,
         Temperature = 0.6f,
     };
+
+    public static AiPrompt ComposeNew(string instruction) => new()
+    {
+        System = "You write emails from a short instruction. " +
+                 "Output a first line `Subject: <subject>`, then a blank line, then the email body " +
+                 "(1-3 short paragraphs). A brief greeting is fine. Do not add a sign-off or a name.",
+        User = $"Instruction: {instruction}",
+        MaxTokens = 400,
+        Temperature = 0.5f,
+    };
+
+    public static AiPrompt ComposeReply(string instruction, string subject, string from, string? body) => new()
+    {
+        System = "You write email replies from a short instruction. 1 to 4 sentences. " +
+                 "No greeting, no sign-off, no name. Only use facts from the email and the instruction.",
+        User =
+            $"Instruction: {instruction}\n\n" +
+            "----- EMAIL -----\n" +
+            $"From: {from}\nSubject: {subject}\n\n{Clip(body)}\n" +
+            "----- END -----\n\n" +
+            "Reply:",
+        MaxTokens = 350,
+        Temperature = 0.5f,
+    };
 }

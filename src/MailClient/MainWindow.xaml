@@ -440,6 +440,22 @@
                                         TextChanged="RecipientBox_TextChanged"
                                         SuggestionChosen="RecipientBox_SuggestionChosen" />
                         <TextBox x:Name="ComposeSubject" Header="Subject" />
+
+                        <Grid x:Name="ComposePromptBar" ColumnSpacing="6" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="ComposePromptBox" Grid.Column="0" Header="Draft with on-device AI"
+                                     PlaceholderText="e.g. reply saying I can do Thursday but not Friday" />
+                            <Button x:Name="ComposePromptButton" Grid.Column="1" Click="ComposePrompt_Click"
+                                    VerticalAlignment="Bottom" Style="{ThemeResource AccentButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE945;" FontSize="12" />
+                                    <TextBlock x:Name="ComposePromptButtonText" Text="Draft" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
                     </StackPanel>
 
                     <InfoBar Grid.Row="1" x:Name="ComposeStatus" IsOpen="False" IsClosable="False" Margin="16,8,16,0" />
