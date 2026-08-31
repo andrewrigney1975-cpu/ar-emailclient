@@ -62,9 +62,7 @@ public sealed partial class MainWindow : Window
             _ = SetComposeHtmlAsync(_pendingEditorHtml);
         };
 
-        Title = $"Dispatch — build {BuildInfo.Number}";
-        AppTitleText.Text = $"Dispatch — build {BuildInfo.Number}";
-        ToolTipService.SetToolTip(AppTitleText, $"Dispatch — build {BuildInfo.Number}");
+        UpdateFetchState();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         AppTitleBar.SizeChanged += (_, _) => UpdateTitleBarInset();
@@ -103,7 +101,11 @@ public sealed partial class MainWindow : Window
         });
         ImapIdleService.NewMessages += (accountId, folder) =>
             DispatcherQueue.TryEnqueue(() => _ = _vm.HandlePushedNewMailAsync(accountId, folder));
-        ImapIdleService.PushStateChanged += () => DispatcherQueue.TryEnqueue(UpdatePollInterval);
+        ImapIdleService.PushStateChanged += () => DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdatePollInterval();
+            UpdateFetchState();
+        });
         MessageCache.TagsChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             RefreshTagNodes();
@@ -271,6 +273,19 @@ public sealed partial class MainWindow : Window
             LoggingService.Info("MainWindow.UpdatePollInterval",
                 $"poll every {interval.TotalMinutes:0} min (push {(ImapIdleService.AllAccountsPushing ? "active" : "partial/off")})");
         }
+
+        UpdateFetchState();
+    }
+
+    private void UpdateFetchState()
+    {
+        var fetch = ImapIdleService.AllAccountsPushing ? "Push" : "Polling";
+        var text = $"Dispatch — build {BuildInfo.Number} · {fetch}";
+        Title = text;
+        AppTitleText.Text = text;
+        ToolTipService.SetToolTip(AppTitleText, ImapIdleService.AllAccountsPushing
+            ? "New mail arrives via IMAP push (IDLE)"
+            : "IMAP push unavailable — checking for new mail on a timer");
     }
 
     /// Toast for any calendar event that is exactly one day away, once per event.
