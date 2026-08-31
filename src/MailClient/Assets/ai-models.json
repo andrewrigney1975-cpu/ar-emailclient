@@ -1,0 +1,18 @@
+[
+  {
+    "id": "phi-3.5-mini-int4",
+    "displayName": "Phi-3.5 Mini — CPU (works everywhere)",
+    "repo": "microsoft/Phi-3.5-mini-instruct-onnx",
+    "subPath": "cpu_and_mobile/cpu-int4-awq-block-128-acc-level-4",
+    "approxSize": "2.7 GB",
+    "backend": "Cpu"
+  },
+  {
+    "id": "phi-3.5-mini-dml",
+    "displayName": "Phi-3.5 Mini — GPU / DirectML (faster, needs a DX12 GPU)",
+    "repo": "microsoft/Phi-3.5-mini-instruct-onnx",
+    "subPath": "gpu/gpu-int4-awq-block-128",
+    "approxSize": "2.1 GB",
+    "backend": "DirectMl"
+  }
+]

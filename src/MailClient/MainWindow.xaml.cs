@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     private readonly ObservableCollection<OutgoingAttachment> _composeAttachments = new();
     private bool _composeEditorReady;
     private string _pendingEditorHtml = string.Empty;
+    private string _composeBodySuffix = string.Empty;
     private bool _restoredLastFolder;
     private CalendarSuggestion? _currentSuggestion;
     private DispatcherTimer? _pollTimer;
@@ -86,6 +87,7 @@ public sealed partial class MainWindow : Window
             RefreshMessageTags();
         });
         MessageCache.FavouritesChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshFavouriteButton);
+        Services.Ai.Ai.ReadyChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshSummariseButton);
         MessageCache.FollowsChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             RefreshFlagButton();
@@ -118,6 +120,7 @@ public sealed partial class MainWindow : Window
             StartPolling();
 
             ContactStore.RefreshFromCache();
+            _ = Services.Ai.AiBootstrapper.RefreshAsync(DispatcherQueue);
 
             _loaded = true;
             if (_pendingNotificationMail is { } pending)
@@ -862,6 +865,16 @@ public sealed partial class MainWindow : Window
         RailCalendar.SetDisplayDate(day);
     }
 
+    private void SetCalendarSuggestion(CalendarSuggestion? suggestion)
+    {
+        _currentSuggestion = suggestion;
+        AddToCalendarButton.Visibility = suggestion is null ? Visibility.Collapsed : Visibility.Visible;
+        if (suggestion is { } sg)
+        {
+            AddToCalendarText.Text = $"Add to calendar: {sg.Title} ({sg.Date.LocalDateTime:d MMM})";
+        }
+    }
+
     private async void AddToCalendar_Click(object sender, RoutedEventArgs e)
     {
         if (_currentSuggestion is not { } suggestion)
@@ -1100,6 +1113,24 @@ public sealed partial class MainWindow : Window
         RefreshFavouriteButton();
         RefreshFlagButton();
         RefreshPriorityBadge();
+        RefreshSummariseButton();
+
+        var cachedSummary = _vm.CurrentOpenRow is { } sRow ? MessageCache.AiSummaryFor(sRow.AccountId, sRow.Folder, sRow.Uid) : null;
+        if (!string.IsNullOrWhiteSpace(cachedSummary))
+        {
+            SummaryText.Text = cachedSummary;
+            SummaryPanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            SummaryPanel.Visibility = Visibility.Collapsed;
+        }
+
+        var cachedReplies = _vm.CurrentOpenRow is { } rRow
+            ? MessageCache.AiRepliesFor(rRow.AccountId, rRow.Folder, rRow.Uid)
+            : new List<string>();
+        RepliesList.ItemsSource = cachedReplies;
+        RepliesPanel.Visibility = cachedReplies.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
@@ -1110,12 +1141,18 @@ public sealed partial class MainWindow : Window
                 ? Visibility.Visible : Visibility.Collapsed;
         AlwaysLoadImagesText.Text = $"Always load images from {domain}";
 
-        _currentSuggestion = DateActionScanner.Scan(msg.Subject, msg.Html ?? msg.PlainText, msg.FromAddress);
-        AddToCalendarButton.Visibility = _currentSuggestion is null ? Visibility.Collapsed : Visibility.Visible;
-        if (_currentSuggestion is { } sg)
+        var regexSuggestion = DateActionScanner.Scan(msg.Subject, msg.Html ?? msg.PlainText, msg.FromAddress);
+        CalendarSuggestion? aiSuggestion = null;
+        if (_vm.CurrentOpenRow is { } sgRow)
         {
-            AddToCalendarText.Text = $"Add to calendar: {sg.Title} ({sg.Date.LocalDateTime:d MMM})";
+            var (ticks, title) = MessageCache.AiEventFor(sgRow.AccountId, sgRow.Folder, sgRow.Uid);
+            if (ticks > 0)
+            {
+                aiSuggestion = new CalendarSuggestion(new DateTimeOffset(ticks, TimeSpan.Zero), title);
+            }
         }
+
+        SetCalendarSuggestion(aiSuggestion ?? regexSuggestion);
 
         if (msg.Html is { } html)
         {
@@ -1351,6 +1388,148 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
     }
 
+    private async void AiButton_Click(object sender, RoutedEventArgs e)
+    {
+        await new AiSettingsDialog { XamlRoot = Content.XamlRoot }.ShowAsync();
+    }
+
+    private async void BriefingButton_Click(object sender, RoutedEventArgs e)
+    {
+        await new AiBriefingDialog { XamlRoot = Content.XamlRoot }.ShowAsync();
+    }
+
+    private void RefreshSummariseButton()
+    {
+        var show = Services.Ai.Ai.Service.IsReady && _vm.HasMessage ? Visibility.Visible : Visibility.Collapsed;
+        SummariseButton.Visibility = show;
+        SuggestRepliesButton.Visibility = show;
+    }
+
+    private static string PlainBody(MailMessageContent msg)
+    {
+        if (!string.IsNullOrWhiteSpace(msg.PlainText))
+        {
+            return msg.PlainText!.Trim();
+        }
+
+        var html = msg.Html ?? string.Empty;
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<(style|script|head)[^>]*>.*?</\1>",
+            " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
+        html = System.Net.WebUtility.HtmlDecode(html);
+        return System.Text.RegularExpressions.Regex.Replace(html, @"[ \t ]+", " ")
+            .Replace("\r", string.Empty)
+            .Trim();
+    }
+
+    private async void Summarise_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentMessage is not { } msg || _vm.CurrentOpenRow is not { } row ||
+            !Services.Ai.Ai.Service.IsReady)
+        {
+            return;
+        }
+
+        SummariseButton.IsEnabled = false;
+        SummariseButtonText.Text = "Summarising…";
+        SummaryPanel.Visibility = Visibility.Visible;
+        SummaryText.Text = string.Empty;
+
+        var body = PlainBody(msg);
+        LoggingService.Info("MainWindow.Summarise", $"body {body.Length} chars, model {Services.Ai.Ai.Service.ModelName}");
+        var prompt = Services.Ai.AiPrompts.Summarise(msg.Subject, msg.FromDisplay, body);
+        var builder = new System.Text.StringBuilder();
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            await foreach (var piece in Services.Ai.Ai.Service.StreamAsync(prompt, cts.Token))
+            {
+                builder.Append(piece);
+                SummaryText.Text = builder.ToString();
+            }
+
+            var raw = builder.ToString().Trim();
+            LoggingService.Info("MainWindow.Summarise", $"output {raw.Length} chars: {raw[..Math.Min(raw.Length, 200)]}");
+
+            var (aiEvent, cleanSummary) = Services.Ai.AiActionParser.Parse(raw);
+            SummaryText.Text = cleanSummary;
+
+            if (cleanSummary.Length > 0)
+            {
+                MessageCache.SaveAiSummary(row.AccountId, row.Folder, row.Uid, cleanSummary,
+                    aiEvent?.Date.UtcTicks ?? 0, aiEvent?.Title ?? string.Empty);
+            }
+
+            if (aiEvent is not null)
+            {
+                SetCalendarSuggestion(aiEvent);
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.Summarise_Click", ex);
+            SummaryText.Text = "Couldn't summarise: " + ex.Message;
+        }
+        finally
+        {
+            SummariseButton.IsEnabled = true;
+            SummariseButtonText.Text = "Summarise";
+        }
+    }
+
+    private async void SuggestReplies_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentMessage is not { } msg || _vm.CurrentOpenRow is not { } row ||
+            !Services.Ai.Ai.Service.IsReady)
+        {
+            return;
+        }
+
+        SuggestRepliesButton.IsEnabled = false;
+        SuggestRepliesButtonText.Text = "Drafting…";
+        RepliesPanel.Visibility = Visibility.Visible;
+        RepliesList.ItemsSource = new List<string> { "…" };
+
+        var prompt = Services.Ai.AiPrompts.SuggestReplies(msg.Subject, msg.FromDisplay, PlainBody(msg));
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            var raw = await Services.Ai.Ai.Service.CompleteAsync(prompt, cts.Token);
+            var replies = Services.Ai.AiReplyParser.Parse(raw);
+            LoggingService.Info("MainWindow.SuggestReplies", $"{replies.Count} replies from {raw.Length} chars");
+
+            if (replies.Count > 0)
+            {
+                MessageCache.SaveAiReplies(row.AccountId, row.Folder, row.Uid, replies);
+                RepliesList.ItemsSource = replies;
+            }
+            else
+            {
+                RepliesList.ItemsSource = new List<string> { "(no replies generated)" };
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.SuggestReplies_Click", ex);
+            RepliesList.ItemsSource = new List<string> { "Couldn't draft replies: " + ex.Message };
+        }
+        finally
+        {
+            SuggestRepliesButton.IsEnabled = true;
+            SuggestRepliesButtonText.Text = "Suggest replies";
+        }
+    }
+
+    private void ReplyChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string draft } && draft.Length > 2 && _vm.CurrentMessage is { } msg)
+        {
+            StartCompose(ComposeMode.Reply, msg, draft);
+        }
+    }
+
     private const string EditorPage = """
         <!doctype html><html><head><meta charset="utf-8">
         <style>
@@ -1459,7 +1638,7 @@ public sealed partial class MainWindow : Window
         sender.ItemsSource = null;
     }
 
-    private async void StartCompose(ComposeMode mode, MailMessageContent? source)
+    private async void StartCompose(ComposeMode mode, MailMessageContent? source, string? draftText = null)
     {
         var account = _vm.CurrentAccount ?? AccountStore.All.FirstOrDefault();
         if (account is null)
@@ -1479,7 +1658,11 @@ public sealed partial class MainWindow : Window
         ComposeTo.Text = ComposeCc.Text = ComposeSubject.Text = string.Empty;
 
         var signature = BuildSignatureHtml(account.Signature);
-        var body = "<p><br></p>" + signature;
+        var draft = string.IsNullOrWhiteSpace(draftText)
+            ? "<p><br></p>"
+            : $"<p>{Esc(draftText).Replace("\r\n", "\n").Replace("\n", "<br>")}</p><p><br></p>";
+        _composeBodySuffix = signature;
+
         if (_composeSource is { } src)
         {
             var header = mode == ComposeMode.Forward
@@ -1489,7 +1672,7 @@ public sealed partial class MainWindow : Window
                 : $"On {Esc(src.Date.LocalDateTime.ToString("f"))}, {Esc(src.FromDisplay)} wrote:<br>";
             var original = src.Html is { Length: > 0 } h ? InnerHtmlOnly(h)
                 : $"<pre>{Esc(src.PlainText ?? string.Empty)}</pre>";
-            body = $"<p><br></p>{signature}<p><br></p><blockquote>{header}{original}</blockquote>";
+            _composeBodySuffix = $"{signature}<p><br></p><blockquote>{header}{original}</blockquote>";
 
             switch (mode)
             {
@@ -1515,10 +1698,66 @@ public sealed partial class MainWindow : Window
             _ => "New message",
         };
 
+        ComposePromptBox.Text = string.Empty;
+        ComposePromptBar.Visibility = Services.Ai.Ai.Service.IsReady ? Visibility.Visible : Visibility.Collapsed;
+
         ShowReading(ReadingMode.Compose);
         await EnsureComposeEditorAsync();
-        await SetComposeHtmlAsync(body);
+        await SetComposeHtmlAsync(draft + _composeBodySuffix);
         ComposeTo.Focus(FocusState.Programmatic);
+    }
+
+    private async void ComposePrompt_Click(object sender, RoutedEventArgs e)
+    {
+        var instruction = ComposePromptBox.Text.Trim();
+        if (instruction.Length < 3 || _composeAccount is null || !Services.Ai.Ai.Service.IsReady)
+        {
+            return;
+        }
+
+        ComposePromptButton.IsEnabled = false;
+        ComposePromptButtonText.Text = "Drafting…";
+
+        var prompt = _composeSource is { } src
+            ? Services.Ai.AiPrompts.ComposeReply(instruction, src.Subject, src.FromDisplay, PlainBody(src))
+            : Services.Ai.AiPrompts.ComposeNew(instruction);
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            var raw = await Services.Ai.Ai.Service.CompleteAsync(prompt, cts.Token);
+            LoggingService.Info("MainWindow.ComposePrompt", $"draft {raw.Length} chars (reply={_composeSource is not null})");
+
+            string draftHtml;
+            if (_composeSource is null)
+            {
+                var (subject, bodyText) = Services.Ai.AiComposeParser.ParseNew(raw);
+                if (!string.IsNullOrWhiteSpace(subject) && string.IsNullOrWhiteSpace(ComposeSubject.Text))
+                {
+                    ComposeSubject.Text = subject!;
+                }
+
+                draftHtml = Services.Ai.AiComposeParser.ToHtml(bodyText);
+            }
+            else
+            {
+                draftHtml = Services.Ai.AiComposeParser.ToHtml(raw);
+            }
+
+            await SetComposeHtmlAsync(draftHtml + _composeBodySuffix);
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.ComposePrompt_Click", ex);
+            ComposeStatus.Severity = InfoBarSeverity.Error;
+            ComposeStatus.Message = "Couldn't draft: " + ex.Message;
+            ComposeStatus.IsOpen = true;
+        }
+        finally
+        {
+            ComposePromptButton.IsEnabled = true;
+            ComposePromptButtonText.Text = "Draft";
+        }
     }
 
     private async void ComposeCmd_Click(object sender, RoutedEventArgs e)

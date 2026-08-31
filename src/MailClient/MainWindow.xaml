@@ -77,6 +77,16 @@
                     </Button>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Spacing="4" Padding="4,8">
+                    <Button x:Name="BriefingButton" Style="{StaticResource ActivityBarButtonStyle}"
+                            Click="BriefingButton_Click" ToolTipService.ToolTip="Today &amp; weekly briefings"
+                            AutomationProperties.Name="Briefings">
+                        <FontIcon Glyph="&#xE8F1;" FontSize="18" />
+                    </Button>
+                    <Button x:Name="AiButton" Style="{StaticResource ActivityBarButtonStyle}"
+                            Click="AiButton_Click" ToolTipService.ToolTip="On-device AI"
+                            AutomationProperties.Name="AI settings">
+                        <FontIcon Glyph="&#xE945;" FontSize="18" />
+                    </Button>
                     <Button x:Name="CalendarToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
                             Click="CalendarToggle_Click" ToolTipService.ToolTip="Show / hide calendar"
                             AutomationProperties.Name="Toggle calendar">
@@ -280,6 +290,43 @@
                                     <TextBlock Text="Tag" FontSize="11" />
                                 </StackPanel>
                             </Button>
+                            <Button x:Name="SummariseButton" Click="Summarise_Click" Padding="6,1"
+                                    Visibility="Collapsed" ToolTipService.ToolTip="Summarise with on-device AI">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE945;" FontSize="10" />
+                                    <TextBlock x:Name="SummariseButtonText" Text="Summarise" FontSize="11" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="SuggestRepliesButton" Click="SuggestReplies_Click" Padding="6,1"
+                                    Visibility="Collapsed" ToolTipService.ToolTip="Draft replies with on-device AI">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE8BD;" FontSize="10" />
+                                    <TextBlock x:Name="SuggestRepliesButtonText" Text="Suggest replies" FontSize="11" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <Border x:Name="SummaryPanel" Visibility="Collapsed" Margin="0,8,0,0" Padding="10,8"
+                                CornerRadius="4" Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="AI summary" FontSize="10" Opacity="0.6" />
+                                <TextBlock x:Name="SummaryText" FontSize="12" TextWrapping="Wrap"
+                                           IsTextSelectionEnabled="True" />
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel x:Name="RepliesPanel" Visibility="Collapsed" Spacing="4" Margin="0,8,0,0">
+                            <TextBlock Text="Suggested replies — click one to edit and send" FontSize="10" Opacity="0.6" />
+                            <ItemsControl x:Name="RepliesList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Click="ReplyChip_Click" Tag="{Binding}" HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Left" Margin="0,0,0,4" Padding="10,6">
+                                            <TextBlock Text="{Binding}" FontSize="12" TextWrapping="Wrap" />
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </StackPanel>
 
@@ -398,6 +445,22 @@
                                         TextChanged="RecipientBox_TextChanged"
                                         SuggestionChosen="RecipientBox_SuggestionChosen" />
                         <TextBox x:Name="ComposeSubject" Header="Subject" />
+
+                        <Grid x:Name="ComposePromptBar" ColumnSpacing="6" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="ComposePromptBox" Grid.Column="0" Header="Draft with on-device AI"
+                                     PlaceholderText="e.g. reply saying I can do Thursday but not Friday" />
+                            <Button x:Name="ComposePromptButton" Grid.Column="1" Click="ComposePrompt_Click"
+                                    VerticalAlignment="Bottom" Style="{ThemeResource AccentButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE945;" FontSize="12" />
+                                    <TextBlock x:Name="ComposePromptButtonText" Text="Draft" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
                     </StackPanel>
 
                     <InfoBar Grid.Row="1" x:Name="ComposeStatus" IsOpen="False" IsClosable="False" Margin="16,8,16,0" />

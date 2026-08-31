@@ -62,6 +62,17 @@ public static class MessageCache
                     ON Summaries (AccountId, DateTicks DESC);
 
                 CREATE INDEX IF NOT EXISTS IX_Tags_Tag ON Tags (Tag);
+
+                CREATE TABLE IF NOT EXISTS AiSummaries (
+                    AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
+                    Summary TEXT NOT NULL, EventTicks INTEGER NOT NULL DEFAULT 0,
+                    EventTitle TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (AccountId, Folder, Uid));
+
+                CREATE TABLE IF NOT EXISTS AiReplies (
+                    AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
+                    Json TEXT NOT NULL,
+                    PRIMARY KEY (AccountId, Folder, Uid));
                 """;
             cmd.ExecuteNonQuery();
 
@@ -70,6 +81,8 @@ public static class MessageCache
                      {
                          "ALTER TABLE Folders ADD COLUMN Role TEXT NOT NULL DEFAULT ''",
                          "ALTER TABLE Summaries ADD COLUMN Priority INTEGER NOT NULL DEFAULT 1",
+                         "ALTER TABLE AiSummaries ADD COLUMN EventTicks INTEGER NOT NULL DEFAULT 0",
+                         "ALTER TABLE AiSummaries ADD COLUMN EventTitle TEXT NOT NULL DEFAULT ''",
                      })
             {
                 try
@@ -184,7 +197,8 @@ public static class MessageCache
             cmd.CommandText =
                 "DELETE FROM Summaries WHERE AccountId = @a; DELETE FROM Folders WHERE AccountId = @a; " +
                 "DELETE FROM Favourites WHERE AccountId = @a; DELETE FROM Tags WHERE AccountId = @a; " +
-                "DELETE FROM Follows WHERE AccountId = @a;";
+                "DELETE FROM Follows WHERE AccountId = @a; DELETE FROM AiSummaries WHERE AccountId = @a; " +
+                "DELETE FROM AiReplies WHERE AccountId = @a;";
             cmd.Parameters.AddWithValue("@a", accountId);
             cmd.ExecuteNonQuery();
         }
@@ -607,6 +621,150 @@ public static class MessageCache
         {
             LoggingService.Warn("MessageCache.KnownAddresses", ex);
             return new List<(string, string)>();
+        }
+    }
+
+    // ----- AI summaries -----
+
+    public static string? AiSummaryFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT Summary FROM AiSummaries WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            return cmd.ExecuteScalar() as string;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.AiSummaryFor", ex);
+            return null;
+        }
+    }
+
+    public static void SaveAiSummary(string accountId, string folder, uint uid, string summary,
+        long eventTicks = 0, string eventTitle = "")
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO AiSummaries VALUES (@a, @f, @u, @s, @et, @etitle)";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.Parameters.AddWithValue("@s", summary);
+            cmd.Parameters.AddWithValue("@et", eventTicks);
+            cmd.Parameters.AddWithValue("@etitle", eventTitle);
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.SaveAiSummary", ex);
+        }
+    }
+
+    public sealed record BriefItem(DateTimeOffset Date, string From, string Subject, bool IsRead, int Priority, string? Summary);
+
+    /// Recent messages across all accounts for the daily/weekly briefings, with their AI summary
+    /// (first line) when one has been generated.
+    public static List<BriefItem> RecentForBriefing(int days, int limit = 120)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT s.DateTicks, s.FromName, s.Subject, s.IsRead, s.Priority, a.Summary " +
+                "FROM Summaries s LEFT JOIN AiSummaries a " +
+                "ON a.AccountId=s.AccountId AND a.Folder=s.Folder AND a.Uid=s.Uid " +
+                "WHERE s.DateTicks >= @cutoff ORDER BY s.DateTicks DESC LIMIT @lim";
+            cmd.Parameters.AddWithValue("@cutoff", DateTimeOffset.Now.AddDays(-days).UtcTicks);
+            cmd.Parameters.AddWithValue("@lim", limit);
+
+            var rows = new List<BriefItem>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new BriefItem(
+                    new DateTimeOffset(reader.GetInt64(0), TimeSpan.Zero),
+                    reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                    reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                    reader.GetInt64(3) != 0,
+                    (int)reader.GetInt64(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5)));
+            }
+
+            return rows;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.RecentForBriefing", ex);
+            return new List<BriefItem>();
+        }
+    }
+
+    public static List<string> AiRepliesFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT Json FROM AiReplies WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            return cmd.ExecuteScalar() is string json
+                ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>()
+                : new List<string>();
+        }
+        catch (Exception ex) when (ex is SqliteException or System.Text.Json.JsonException)
+        {
+            LoggingService.Warn("MessageCache.AiRepliesFor", ex);
+            return new List<string>();
+        }
+    }
+
+    public static void SaveAiReplies(string accountId, string folder, uint uid, IReadOnlyList<string> replies)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO AiReplies VALUES (@a, @f, @u, @j)";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.Parameters.AddWithValue("@j", System.Text.Json.JsonSerializer.Serialize(replies));
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.SaveAiReplies", ex);
+        }
+    }
+
+    /// (eventDateTicks, eventTitle) the model extracted for this message, or (0, "").
+    public static (long Ticks, string Title) AiEventFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT EventTicks, EventTitle FROM AiSummaries WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            using var reader = cmd.ExecuteReader();
+            return reader.Read() ? (reader.GetInt64(0), reader.GetString(1)) : (0L, string.Empty);
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.AiEventFor", ex);
+            return (0L, string.Empty);
         }
     }
 
