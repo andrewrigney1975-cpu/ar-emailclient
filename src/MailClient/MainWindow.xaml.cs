@@ -62,6 +62,8 @@ public sealed partial class MainWindow : Window
         AppTitleText.Text = $"WinUI3 Mail  ·  build {BuildInfo.Number}";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+        AppTitleBar.SizeChanged += (_, _) => UpdateTitleBarInset();
+        UpdateTitleBarInset();
 
         var settings = AppSettings.Current;
         if (settings.RailWidth >= 200)
@@ -192,6 +194,21 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             LoggingService.Warn("MainWindow.BringToForeground", ex);
+        }
+    }
+
+    /// Keeps a spacer column the width of the system caption buttons so title-bar content
+    /// (the calendar-sidebar toggle) sits just left of minimise/maximise/close.
+    private void UpdateTitleBarInset()
+    {
+        try
+        {
+            var scale = AppTitleBar.XamlRoot?.RasterizationScale ?? 1.0;
+            TitleBarRightInset.Width = new GridLength(Math.Max(0, AppWindow.TitleBar.RightInset / scale));
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.UpdateTitleBarInset", ex);
         }
     }
 

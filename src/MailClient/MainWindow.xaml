@@ -27,12 +27,25 @@
 
         <!-- Title bar -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource ControlFillColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="TitleBarRightInset" Width="0" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
                 <FontIcon Glyph="&#xE715;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                 <TextBlock x:Name="AppTitleText" Text="WinUI3 Mail" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
                 <TextBlock x:Name="StatusInline" Text="{Binding StatusText}" FontSize="12" Opacity="0.6"
                            VerticalAlignment="Center" Margin="10,0,0,0" />
             </StackPanel>
+
+            <Button Grid.Column="1" x:Name="CalendarToggleButton" Click="CalendarToggle_Click"
+                    ToolTipService.ToolTip="Show / hide calendar sidebar" AutomationProperties.Name="Toggle calendar sidebar"
+                    Background="Transparent" BorderThickness="0" MinWidth="0" Padding="10,4" VerticalAlignment="Stretch"
+                    CornerRadius="0">
+                <FontIcon Glyph="&#xE8A0;" FontSize="14" />
+            </Button>
         </Grid>
 
         <!-- Body: activity bar | rail | list | reading pane -->
@@ -91,11 +104,6 @@
                             Click="CalendarMode_Click" ToolTipService.ToolTip="Calendar"
                             AutomationProperties.Name="Calendar">
                         <FontIcon Glyph="&#xE787;" FontSize="18" />
-                    </Button>
-                    <Button x:Name="CalendarToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
-                            Click="CalendarToggle_Click" ToolTipService.ToolTip="Show / hide calendar sidebar"
-                            AutomationProperties.Name="Toggle calendar sidebar">
-                        <FontIcon Glyph="&#xE8A0;" FontSize="18" />
                     </Button>
                     <Button x:Name="AddAccountButton" Style="{StaticResource ActivityBarButtonStyle}"
                             Click="AddAccountButton_Click" ToolTipService.ToolTip="Add account"
