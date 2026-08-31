@@ -65,6 +65,15 @@ public sealed partial class MainWindow : Window
         AppTitleBar.SizeChanged += (_, _) => UpdateTitleBarInset();
         UpdateTitleBarInset();
 
+        try
+        {
+            AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico"));
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow: SetIcon", ex);
+        }
+
         var settings = AppSettings.Current;
         if (settings.RailWidth >= 200)
         {
