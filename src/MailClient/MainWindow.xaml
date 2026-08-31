@@ -89,8 +89,11 @@
                                           Width="18" Height="18" />
                         </Grid>
                     </Button>
-                </StackPanel>
-                <StackPanel Grid.Row="1" Spacing="4" Padding="4,8">
+                    <Button x:Name="CalendarModeButton" Style="{StaticResource ActivityBarButtonStyle}"
+                            Click="CalendarMode_Click" ToolTipService.ToolTip="Calendar"
+                            AutomationProperties.Name="Calendar">
+                        <FontIcon Glyph="&#xE787;" FontSize="18" />
+                    </Button>
                     <Button x:Name="BriefingButton" Style="{StaticResource ActivityBarButtonStyle}"
                             Click="BriefingButton_Click" ToolTipService.ToolTip="Today &amp; weekly briefings"
                             AutomationProperties.Name="Briefings">
@@ -101,11 +104,8 @@
                             AutomationProperties.Name="AI settings">
                         <FontIcon Glyph="&#xE945;" FontSize="18" />
                     </Button>
-                    <Button x:Name="CalendarModeButton" Style="{StaticResource ActivityBarButtonStyle}"
-                            Click="CalendarMode_Click" ToolTipService.ToolTip="Calendar"
-                            AutomationProperties.Name="Calendar">
-                        <FontIcon Glyph="&#xE787;" FontSize="18" />
-                    </Button>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Spacing="4" Padding="4,8">
                     <Button x:Name="AddAccountButton" Style="{StaticResource ActivityBarButtonStyle}"
                             Click="AddAccountButton_Click" ToolTipService.ToolTip="Add account"
                             AutomationProperties.Name="Add account">
