@@ -26,6 +26,9 @@ public sealed partial class MainWindow
     private DateTime _calSelected = DateTime.Today;
     private string? _calEditingId;
 
+    private DispatcherTimer? _dayRolloverTimer;
+    private DateTime _lastKnownDate = DateTime.Today;
+
     private void InitCalendar()
     {
         _calView = Enum.TryParse(AppSettings.Current.CalendarViewMode, out CalView v) ? v : CalView.Week;
@@ -33,6 +36,50 @@ public sealed partial class MainWindow
         RailCalendar.FirstDayOfWeek =
             (Windows.Globalization.DayOfWeek)(int)CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
         ResetCalEditor(_calSelected);
+    }
+
+    /// Ticks once a minute; when the wall-clock day changes, moves the calendar off the stale
+    /// "today" so a selected date/highlight doesn't linger on yesterday.
+    private void StartDayRolloverWatch()
+    {
+        _dayRolloverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        _dayRolloverTimer.Tick += (_, _) =>
+        {
+            var today = DateTime.Today;
+            if (today == _lastKnownDate)
+            {
+                return;
+            }
+
+            var wasOnOldToday = _lastKnownDate;
+            _lastKnownDate = today;
+            LoggingService.Info("MainWindow.DayRollover", $"day changed to {today:yyyy-MM-dd}");
+
+            // Rail mini-calendar: follow to the new day if it was sitting on the old "today".
+            var railSel = RailCalendar.SelectedDates.Count > 0
+                ? RailCalendar.SelectedDates[0].LocalDateTime.Date
+                : (DateTime?)null;
+            if (railSel is null || railSel == wasOnOldToday)
+            {
+                RailCalendar.SelectedDates.Clear();
+                RailCalendar.SelectedDates.Add(new DateTimeOffset(today));
+            }
+
+            RailCalendar.SetDisplayDate(DateTimeOffset.Now);
+            RefreshCalendarDay();
+            CheckEventReminders();
+
+            // Full calendar view: advance the anchor/selection if they were on the old today,
+            // then always re-render so the "today" column highlight is correct.
+            if (_calAnchor.Date == wasOnOldToday) _calAnchor = today;
+            if (_calSelected.Date == wasOnOldToday) _calSelected = today;
+            if (_calendarMode)
+            {
+                RenderCalendarGrid();
+                RefreshCalAgenda();
+            }
+        };
+        _dayRolloverTimer.Start();
     }
 
     private void CalendarMode_Click(object sender, RoutedEventArgs e) => SetCalendarMode(!_calendarMode);

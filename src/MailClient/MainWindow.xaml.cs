@@ -132,6 +132,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _pollTimer?.Stop();
+            _dayRolloverTimer?.Stop();
             ImapIdleService.StopAll();
             NotificationService.MailActivated -= OnMailActivated;
             MailService.DisconnectAll();
@@ -149,6 +150,7 @@ public sealed partial class MainWindow : Window
             CheckEventReminders();
             ImapIdleService.Start(AccountStore.All);
             StartPolling();
+            StartDayRolloverWatch();
 
             ContactStore.RefreshFromCache();
             _ = Services.Ai.AiBootstrapper.RefreshAsync(DispatcherQueue);
