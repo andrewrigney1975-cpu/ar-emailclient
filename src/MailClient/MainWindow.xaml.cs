@@ -59,7 +59,8 @@ public sealed partial class MainWindow : Window
             _ = SetComposeHtmlAsync(_pendingEditorHtml);
         };
 
-        Title = "Dispatch";
+        Title = $"Dispatch — build {BuildInfo.Number}";
+        AppTitleText.Text = $"Dispatch — build {BuildInfo.Number}";
         ToolTipService.SetToolTip(AppTitleText, $"Dispatch — build {BuildInfo.Number}");
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
@@ -1096,6 +1097,42 @@ public sealed partial class MainWindow : Window
         ReadingPreview.Visibility = mode == ReadingMode.Preview ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private MailListNode? _lastOpenedNode;
+
+    private async void MessageTree_SelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
+    {
+        var node = args.AddedItems.OfType<MailListNode>().FirstOrDefault();
+        LoggingService.Info("MainWindow.MessageTree_SelectionChanged",
+            $"added={args.AddedItems.Count} node={node?.Kind.ToString() ?? "null"}");
+        if (node is { Kind: MailListKind.Message, Row: { } row })
+        {
+            await OpenMessageNodeAsync(node, row);
+        }
+    }
+
+    private async Task OpenMessageNodeAsync(MailListNode node, MessageRow row)
+    {
+        if (ReferenceEquals(_lastOpenedNode, node) && ReferenceEquals(_vm.CurrentOpenRow, row))
+        {
+            return;
+        }
+
+        _lastOpenedNode = node;
+        LoggingService.Info("MainWindow.OpenMessageNodeAsync", $"open '{row.SubjectDisplay}'");
+
+        try
+        {
+            UpdateSelectionForClick(node);
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.OpenMessageNodeAsync (selection)", ex);
+        }
+
+        await _vm.OpenMessageAsync(row);
+        await RenderCurrentMessageAsync();
+    }
+
     private async void MessageTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
     {
         if (args.InvokedItem is not MailListNode node)
@@ -1105,20 +1142,8 @@ public sealed partial class MainWindow : Window
 
         if (node.Kind == MailListKind.Message && node.Row is { } row)
         {
-            LoggingService.Info("MainWindow.MessageTree_ItemInvoked", $"open '{row.SubjectDisplay}'");
-
-            // Adjust the multi-selection highlight, then ALWAYS open the message.
-            try
-            {
-                UpdateSelectionForClick(node);
-            }
-            catch (Exception ex)
-            {
-                LoggingService.Warn("MainWindow.MessageTree_ItemInvoked (selection)", ex);
-            }
-
-            await _vm.OpenMessageAsync(row);
-            await RenderCurrentMessageAsync();
+            LoggingService.Info("MainWindow.MessageTree_ItemInvoked", $"invoked '{row.SubjectDisplay}'");
+            await OpenMessageNodeAsync(node, row);
             return;
         }
 

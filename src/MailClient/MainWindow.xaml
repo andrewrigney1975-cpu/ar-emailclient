@@ -197,6 +197,7 @@
 
                 <TreeView Grid.Row="1" x:Name="MessageTree" SelectionMode="Single"
                           ItemInvoked="MessageTree_ItemInvoked" RightTapped="MessageTree_RightTapped"
+                          SelectionChanged="MessageTree_SelectionChanged"
                           AutomationProperties.Name="Messages">
                     <TreeView.ItemTemplate>
                         <DataTemplate>
