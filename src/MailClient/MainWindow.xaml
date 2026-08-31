@@ -124,8 +124,7 @@
 
                 <TreeView Grid.Row="1" x:Name="MailTree" Margin="4,0,4,4" SelectionMode="Single"
                           ItemInvoked="MailTree_ItemInvoked"
-                          RightTapped="MailTree_RightTapped"
-                          AllowDrop="True" DragOver="MailTree_DragOver" Drop="MailTree_Drop">
+                          RightTapped="MailTree_RightTapped">
                     <TreeView.ItemTemplate>
                         <DataTemplate>
                             <TreeViewItem ItemsSource="{Binding Children}"
@@ -134,7 +133,9 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8" Padding="2,3"
                                             HorizontalAlignment="Stretch" Background="Transparent"
                                             CanDrag="True" DragStarting="FolderRow_DragStarting"
-                                            DropCompleted="Row_DropCompleted">
+                                            DropCompleted="Row_DropCompleted"
+                                            AllowDrop="True" DragEnter="FolderRow_DragOver"
+                                            DragOver="FolderRow_DragOver" Drop="FolderRow_Drop">
                                     <FontIcon Glyph="{Binding Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                     <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"

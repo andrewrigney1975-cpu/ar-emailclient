@@ -22,9 +22,11 @@ public sealed partial class MainWindow
             args.AllowedOperations = DataPackageOperation.Move;
             args.Data.RequestedOperation = DataPackageOperation.Move;
             args.Data.SetText(row.SubjectDisplay);
+            LoggingService.Info("DragDrop", $"message drag start: {row.SubjectDisplay}");
         }
         else
         {
+            LoggingService.Info("DragDrop", $"message drag cancel (ctx={(sender as FrameworkElement)?.DataContext?.GetType().Name})");
             args.Cancel = true;
         }
     }
@@ -52,99 +54,93 @@ public sealed partial class MainWindow
         _draggedFolder = null;
     }
 
-    // ----- drop onto the folder tree -----
+    // ----- drop onto a folder row -----
 
-    private MailNode? DropTargetFolder(object? originalSource)
-    {
-        var node = FindNodeInParents(originalSource as DependencyObject);
-        return node is { IsAccount: false, IsSmart: false } && node.FolderFullName.Length > 0 ? node : null;
-    }
+    private bool _loggedDragOver;
 
-    private MailNode? DropTargetAny(object? originalSource)
+    private void FolderRow_DragOver(object sender, DragEventArgs e)
     {
-        var node = FindNodeInParents(originalSource as DependencyObject);
-        return node is { IsSmart: false } ? node : null;
-    }
-
-    private void MailTree_DragOver(object sender, DragEventArgs e)
-    {
-        if (_draggedFolder is not null)
+        if (!_loggedDragOver)
         {
-            var target = DropTargetAny(e.OriginalSource);
-            var ok = target is not null && target.AccountId == _draggedFolder.AccountId &&
-                     target.FolderFullName != _draggedFolder.FolderFullName &&
-                     !(target.FolderFullName + "/").StartsWith(_draggedFolder.FolderFullName + "/", StringComparison.OrdinalIgnoreCase) &&
-                     ParentPath(_draggedFolder.FolderFullName) != target.FolderFullName;
+            _loggedDragOver = true;
+            LoggingService.Info("DragDrop", $"folder DragOver: ctx={(sender as FrameworkElement)?.DataContext?.GetType().Name}, " +
+                $"rows={_draggedRows.Count}, folder={_draggedFolder?.DisplayName ?? "none"}");
+        }
 
-            e.AcceptedOperation = ok ? DataPackageOperation.Move : DataPackageOperation.None;
-            if (ok)
-            {
-                e.DragUIOverride.IsCaptionVisible = true;
-                e.DragUIOverride.IsGlyphVisible = false;
-                e.DragUIOverride.Caption = target!.IsAccount ? "Move to top level" : $"Move into {target.DisplayName}";
-            }
-
+        if ((sender as FrameworkElement)?.DataContext is not MailNode target)
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
             return;
         }
 
-        var folder = DropTargetFolder(e.OriginalSource);
-        var messageOk = _draggedRows.Count > 0 && folder is not null &&
-                        _draggedRows.All(r => r.AccountId == folder.AccountId) &&
-                        !_draggedRows.All(r => r.Folder.Equals(folder.FolderFullName, StringComparison.OrdinalIgnoreCase));
+        var ok = false;
+        string caption = string.Empty;
 
-        e.AcceptedOperation = messageOk ? DataPackageOperation.Move : DataPackageOperation.None;
-        if (messageOk)
+        if (_draggedFolder is { } dragged)
+        {
+            ok = target.AccountId == dragged.AccountId &&
+                 target.FolderFullName != dragged.FolderFullName &&
+                 !(target.FolderFullName + "/").StartsWith(dragged.FolderFullName + "/", StringComparison.OrdinalIgnoreCase) &&
+                 ParentPath(dragged.FolderFullName) != (target.IsAccount ? string.Empty : target.FolderFullName);
+            caption = target.IsAccount ? "Move to top level" : $"Move into {target.DisplayName}";
+        }
+        else if (_draggedRows.Count > 0)
+        {
+            ok = target is { IsAccount: false, IsSmart: false } && target.FolderFullName.Length > 0 &&
+                 _draggedRows.All(r => r.AccountId == target.AccountId) &&
+                 !_draggedRows.All(r => r.Folder.Equals(target.FolderFullName, StringComparison.OrdinalIgnoreCase));
+            caption = $"Move to {target.DisplayName}";
+        }
+
+        e.AcceptedOperation = ok ? DataPackageOperation.Move : DataPackageOperation.None;
+        if (ok)
         {
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsGlyphVisible = false;
-            e.DragUIOverride.Caption = $"Move to {folder!.DisplayName}";
+            e.DragUIOverride.Caption = caption;
         }
+
+        e.Handled = true;
     }
 
-    private async void MailTree_Drop(object sender, DragEventArgs e)
+    private async void FolderRow_Drop(object sender, DragEventArgs e)
     {
-        if (_draggedFolder is { } dragged)
+        if ((sender as FrameworkElement)?.DataContext is not MailNode target)
         {
-            _draggedFolder = null;
-            var target = DropTargetAny(e.OriginalSource);
-            if (target is null || target.AccountId != dragged.AccountId)
-            {
-                return;
-            }
+            return;
+        }
 
-            var account = AccountStore.Find(dragged.AccountId);
-            if (account is null)
-            {
-                return;
-            }
+        e.Handled = true;
+        var draggedFolder = _draggedFolder;
+        var rows = _draggedRows.ToList();
+        _draggedFolder = null;
+        _draggedRows = new List<MessageRow>();
 
+        if (draggedFolder is not null && AccountStore.Find(draggedFolder.AccountId) is { } folderAccount &&
+            target.AccountId == draggedFolder.AccountId)
+        {
             try
             {
                 await Task.Run(() => MailService.MoveFolderAsync(
-                    account, dragged.FolderFullName, target.IsAccount ? string.Empty : target.FolderFullName,
-                    CancellationToken.None));
-                await ReloadAccountFoldersAsync(account.Id);
+                    folderAccount, draggedFolder.FolderFullName,
+                    target.IsAccount ? string.Empty : target.FolderFullName, CancellationToken.None));
+                await ReloadAccountFoldersAsync(folderAccount.Id);
             }
             catch (Exception ex)
             {
-                LoggingService.Warn("MainWindow.MailTree_Drop (folder)", ex);
+                LoggingService.Warn("MainWindow.FolderRow_Drop (folder)", ex);
                 await ShowErrorAsync("Couldn't move folder", ex.Message);
             }
 
             return;
         }
 
-        var dropFolder = DropTargetFolder(e.OriginalSource);
-        var rows = _draggedRows.ToList();
-        _draggedRows = new List<MessageRow>();
-        if (dropFolder is null || rows.Count == 0)
+        if (rows.Count > 0 && target is { IsAccount: false, IsSmart: false } && target.FolderFullName.Length > 0)
         {
-            return;
-        }
-
-        foreach (var row in rows.Where(r => r.AccountId == dropFolder.AccountId))
-        {
-            await _vm.MoveAsync(row, dropFolder.FolderFullName);
+            foreach (var row in rows.Where(r => r.AccountId == target.AccountId))
+            {
+                await _vm.MoveAsync(row, target.FolderFullName);
+            }
         }
     }
 
