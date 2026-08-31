@@ -205,6 +205,12 @@ public sealed partial class MainWindow : Window
         {
             var scale = AppTitleBar.XamlRoot?.RasterizationScale ?? 1.0;
             TitleBarRightInset.Width = new GridLength(Math.Max(0, AppWindow.TitleBar.RightInset / scale));
+
+            var height = AppWindow.TitleBar.Height / scale;
+            if (height > 0)
+            {
+                TitleRow.Height = new GridLength(height);
+            }
         }
         catch (Exception ex)
         {
