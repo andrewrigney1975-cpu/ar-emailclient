@@ -867,11 +867,25 @@ public sealed partial class MainWindow : Window
 
     private async void MailTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
     {
-        if (args.InvokedItem is not MailNode node)
+        if (args.InvokedItem is MailNode node)
         {
-            return;
+            await InvokeMailNodeAsync(node);
         }
+    }
 
+    // The folder row has CanDrag="True", which suppresses TreeView.ItemInvoked on a tap.
+    // Tapped still fires for a clean tap, so this is the real folder-click handler.
+    private async void FolderRow_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is MailNode node)
+        {
+            e.Handled = true;
+            await InvokeMailNodeAsync(node);
+        }
+    }
+
+    private async Task InvokeMailNodeAsync(MailNode node)
+    {
         if (node.IsSmart)
         {
             switch (node.FolderFullName)

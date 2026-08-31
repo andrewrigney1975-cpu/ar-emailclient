@@ -134,7 +134,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8" Padding="2,3"
                                             HorizontalAlignment="Stretch" Background="Transparent"
                                             CanDrag="True" DragStarting="FolderRow_DragStarting"
-                                            DropCompleted="Row_DropCompleted"
+                                            DropCompleted="Row_DropCompleted" Tapped="FolderRow_Tapped"
                                             AllowDrop="True" DragEnter="FolderRow_DragOver"
                                             DragOver="FolderRow_DragOver" Drop="FolderRow_Drop">
                                     <FontIcon Glyph="{Binding Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
