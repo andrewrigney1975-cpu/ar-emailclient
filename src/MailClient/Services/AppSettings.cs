@@ -20,6 +20,10 @@ public sealed class AppSettingsData
 
     /// Date-group headers ("Today", "Last Week", …) the user has collapsed in the message list.
     public List<string> CollapsedDateGroups { get; set; } = new();
+
+    /// On-device AI. Off until the user opts in and a model has downloaded.
+    public bool AiEnabled { get; set; }
+    public string AiModelId { get; set; } = "phi-3.5-mini-int4";
 }
 
 public static class AppSettings
