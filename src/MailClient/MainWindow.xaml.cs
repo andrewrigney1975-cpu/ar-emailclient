@@ -176,8 +176,9 @@ public sealed partial class MainWindow : Window
         }
 
         var folderNode = _railNodes
-            .SelectMany(n => n.Children)
-            .FirstOrDefault(c => c.AccountId == reference.AccountId && c.FolderFullName == reference.Folder);
+            .Where(n => n.AccountId == reference.AccountId)
+            .Select(n => FindFolderNode(n, reference.Folder))
+            .FirstOrDefault(c => c is not null);
 
         await _vm.OpenFolderAsync(account, reference.Folder, folderNode?.DisplayName ?? reference.Folder);
 
@@ -561,16 +562,10 @@ public sealed partial class MainWindow : Window
             };
 
             // Show the last-known folder list instantly from the local cache, then refresh live.
-            foreach (var cached in MessageCache.LoadFolders(account.Id))
+            foreach (var root in NestFolders(account.Id,
+                         MessageCache.LoadFolders(account.Id).Select(c => (c.FullName, c.Name, c.Unread))))
             {
-                node.Children.Add(new MailNode
-                {
-                    AccountId = account.Id,
-                    IsAccount = false,
-                    FolderFullName = cached.FullName,
-                    DisplayName = cached.Name,
-                    UnreadCount = cached.Unread,
-                });
+                node.Children.Add(root);
             }
 
             _railNodes.Add(node);
@@ -579,6 +574,81 @@ public sealed partial class MainWindow : Window
             TryRestoreLastFolder(account, node);
 
             _ = LoadFoldersAsync(node);
+        }
+    }
+
+    // Turn the flat folder list from IMAP into a nested MailNode tree using "/" or "." path prefixes.
+    private static List<MailNode> NestFolders(
+        string accountId, IEnumerable<(string FullName, string Name, int Unread)> folders)
+    {
+        var byPath = new Dictionary<string, MailNode>(StringComparer.OrdinalIgnoreCase);
+        var roots = new List<MailNode>();
+
+        foreach (var f in folders
+                     .OrderBy(x => x.FullName.Count(c => c is '/' or '.'))
+                     .ThenBy(x => x.FullName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (byPath.ContainsKey(f.FullName))
+            {
+                continue;
+            }
+
+            var node = new MailNode
+            {
+                AccountId = accountId,
+                IsAccount = false,
+                FolderFullName = f.FullName,
+                DisplayName = f.Name,
+                UnreadCount = f.Unread,
+                IsExpanded = false,
+            };
+            byPath[f.FullName] = node;
+
+            var cut = f.FullName.LastIndexOfAny(new[] { '/', '.' });
+            if (cut > 0 && byPath.TryGetValue(f.FullName[..cut], out var parent))
+            {
+                parent.Children.Add(node);
+            }
+            else
+            {
+                roots.Add(node);
+            }
+        }
+
+        return roots;
+    }
+
+    private static HashSet<string> CollectExpandedFolders(MailNode accountNode)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Walk(MailNode n)
+        {
+            foreach (var child in n.Children)
+            {
+                if (child.IsExpanded && child.FolderFullName.Length > 0)
+                {
+                    set.Add(child.FolderFullName);
+                }
+
+                Walk(child);
+            }
+        }
+
+        Walk(accountNode);
+        return set;
+    }
+
+    private static void RestoreExpanded(MailNode node, HashSet<string> expanded)
+    {
+        if (expanded.Contains(node.FolderFullName))
+        {
+            node.IsExpanded = true;
+        }
+
+        foreach (var child in node.Children)
+        {
+            RestoreExpanded(child, expanded);
         }
     }
 
@@ -604,17 +674,17 @@ public sealed partial class MainWindow : Window
 
             DispatcherQueue.TryEnqueue(() =>
             {
+                var expanded = CollectExpandedFolders(node);
                 node.Children.Clear();
-                foreach (var folder in folders)
+                foreach (var root in NestFolders(account.Id,
+                             folders.Select(f => (f.FullName, f.Name, f.Unread))))
                 {
-                    node.Children.Add(new MailNode
+                    if (expanded.Contains(root.FolderFullName))
                     {
-                        AccountId = account.Id,
-                        IsAccount = false,
-                        FolderFullName = folder.FullName,
-                        DisplayName = folder.Name,
-                        UnreadCount = folder.Unread,
-                    });
+                        RestoreExpanded(root, expanded);
+                    }
+
+                    node.Children.Add(root);
                 }
 
                 node.IsExpanded = true;
@@ -654,7 +724,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var folder = accountNode.Children.FirstOrDefault(c => c.FolderFullName == settings.LastFolder);
+        var folder = FindFolderNode(accountNode, settings.LastFolder);
         if (folder is null)
         {
             return;
@@ -662,6 +732,24 @@ public sealed partial class MainWindow : Window
 
         _restoredLastFolder = true;
         _ = _vm.OpenFolderAsync(account, folder.FolderFullName, folder.DisplayName);
+    }
+
+    private static MailNode? FindFolderNode(MailNode parent, string fullName)
+    {
+        foreach (var child in parent.Children)
+        {
+            if (child.FolderFullName == fullName)
+            {
+                return child;
+            }
+
+            if (FindFolderNode(child, fullName) is { } match)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 
     private void MailTree_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -1034,6 +1122,14 @@ public sealed partial class MainWindow : Window
         }
 
         var flyout = new MenuFlyout();
+
+        if (TryAddBulkMenu(flyout, node))
+        {
+            var el = e.OriginalSource as FrameworkElement ?? MessageTree;
+            flyout.ShowAt(el, new FlyoutShowOptions { Position = e.GetPosition(el) });
+            e.Handled = true;
+            return;
+        }
 
         if (node is { Kind: MailListKind.Message, Row: { } row })
         {

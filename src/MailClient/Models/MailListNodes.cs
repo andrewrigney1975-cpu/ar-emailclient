@@ -25,6 +25,10 @@ public partial class MailListNode : ObservableObject
 
     public ObservableCollection<MailListNode> Children { get; } = new();
 
+    /// True when this message leaf is part of the current multi-selection.
+    [ObservableProperty]
+    public partial bool IsSelected { get; set; }
+
     /// Header text for a date group or thread row.
     public string Header { get; init; } = string.Empty;
 

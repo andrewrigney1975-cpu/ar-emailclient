@@ -15,14 +15,16 @@ public sealed partial class MainWindow
 
     private void MessageRow_DragStarting(UIElement sender, DragStartingEventArgs args)
     {
-        if ((sender as FrameworkElement)?.DataContext is MailListNode { Kind: MailListKind.Message, Row: { } row })
+        if ((sender as FrameworkElement)?.DataContext is MailListNode { Kind: MailListKind.Message, Row: { } row } node)
         {
             _draggedFolder = null;
-            _draggedRows = new List<MessageRow> { row };
+            _draggedRows = node.IsSelected && _selection.Count > 1
+                ? SelectedRows()
+                : new List<MessageRow> { row };
             args.AllowedOperations = DataPackageOperation.Move;
             args.Data.RequestedOperation = DataPackageOperation.Move;
-            args.Data.SetText(row.SubjectDisplay);
-            LoggingService.Info("DragDrop", $"message drag start: {row.SubjectDisplay}");
+            args.Data.SetText(_draggedRows.Count > 1 ? $"{_draggedRows.Count} messages" : row.SubjectDisplay);
+            LoggingService.Info("DragDrop", $"message drag start: {_draggedRows.Count} row(s)");
         }
         else
         {
@@ -141,6 +143,8 @@ public sealed partial class MainWindow
             {
                 await _vm.MoveAsync(row, target.FolderFullName);
             }
+
+            ClearMessageSelection();
         }
     }
 

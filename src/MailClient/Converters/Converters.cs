@@ -71,6 +71,17 @@ public sealed partial class ReadToWeightConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
+/// Selected message rows get an accent-tinted background.
+public sealed partial class SelectionToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is bool sel && sel
+            ? (Brush)Application.Current.Resources["AccentAcrylicBackgroundFillColorDefaultBrush"]
+            : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
 public sealed partial class ReadToDotBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
