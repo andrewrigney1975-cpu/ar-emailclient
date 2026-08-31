@@ -36,11 +36,21 @@ public sealed class OnnxGenAiService : IAiService, IDisposable
         Model model;
         if (backend == AiBackend.DirectMl)
         {
-            // The published "gpu" builds ship an empty provider list. Set the DirectML provider
-            // via an overlay (not AppendProvider, which turns on graph capture - unsupported for
-            // this model's control-flow nodes).
+            // The published "gpu" builds ship an empty provider list, so enable DirectML here.
+            // Graph capture is off (this model has control-flow nodes DML can't capture); if DML
+            // still rejects the model the bootstrapper retries on CPU.
             using var config = new Config(modelDir);
-            config.Overlay("""{"model":{"decoder":{"session_options":{"provider_options":[{"dml":{}}]}}}}""");
+            config.ClearProviders();
+            config.AppendProvider("dml");
+            try
+            {
+                config.SetProviderOption("dml", "enable_graph_capture", "0");
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Warn("OnnxGenAiService: dml enable_graph_capture option rejected", ex);
+            }
+
             model = new Model(config);
         }
         else
