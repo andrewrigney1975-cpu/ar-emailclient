@@ -30,20 +30,13 @@ public sealed class OnnxGenAiService : IAiService, IDisposable
 
     public string ModelName { get; }
 
-    public static OnnxGenAiService? TryCreate(string modelDir, AiBackend backend, string modelName)
+    /// Loads the model. Throws OnnxRuntimeGenAIException on an incompatible / broken model.
+    public static OnnxGenAiService Create(string modelDir, AiBackend backend, string modelName)
     {
-        try
-        {
-            var model = new Model(modelDir);
-            var tokenizer = new Tokenizer(model);
-            LoggingService.Info("OnnxGenAiService", $"loaded {modelName} ({backend}) from {modelDir}");
-            return new OnnxGenAiService(model, tokenizer, backend, modelName);
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Warn("OnnxGenAiService.TryCreate", ex);
-            return null;
-        }
+        var model = new Model(modelDir);
+        var tokenizer = new Tokenizer(model);
+        LoggingService.Info("OnnxGenAiService", $"loaded {modelName} ({backend}) from {modelDir}");
+        return new OnnxGenAiService(model, tokenizer, backend, modelName);
     }
 
     private static string BuildChat(AiPrompt p) =>
@@ -68,18 +61,22 @@ public sealed class OnnxGenAiService : IAiService, IDisposable
                     generatorParams.SetSearchOption("max_length", promptLength + prompt.MaxTokens);
                     generatorParams.SetSearchOption("temperature", prompt.Temperature);
                     generatorParams.SetSearchOption("do_sample", prompt.Temperature > 0.01f);
-                    generatorParams.SetInputSequences(sequences);
 
                     using var generator = new Generator(_model, generatorParams);
+                    generator.AppendTokenSequences(sequences);
                     using var stream = _tokenizer.CreateStream();
 
                     while (!generator.IsDone() && !ct.IsCancellationRequested)
                     {
-                        generator.ComputeLogits();
                         generator.GenerateNextToken();
 
-                        var sequence = generator.GetSequence(0);
-                        var piece = stream.Decode(sequence[^1]);
+                        var next = generator.GetNextTokens();
+                        if (next.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        var piece = stream.Decode(next[0]);
                         if (!string.IsNullOrEmpty(piece))
                         {
                             channel.Writer.TryWrite(piece);

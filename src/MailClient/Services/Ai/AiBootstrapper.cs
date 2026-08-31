@@ -19,14 +19,28 @@ public static class AiBootstrapper
             return;
         }
 
-        var service = await Task.Run(() =>
-            OnnxGenAiService.TryCreate(AiModelManager.Dir(info.Id), info.Backend, info.DisplayName));
+        OnnxGenAiService? service = null;
+        string? error = null;
+        try
+        {
+            service = await Task.Run(() =>
+                OnnxGenAiService.Create(AiModelManager.Dir(info.Id), info.Backend, info.DisplayName));
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("AiBootstrapper.RefreshAsync", ex);
+            error = ex.Message.Split('\n', '\r').FirstOrDefault()?.Trim() ?? ex.Message;
+        }
 
         dispatcher.TryEnqueue(() =>
         {
             if (service is not null)
             {
                 Ai.SetService(service);
+            }
+            else if (error is not null)
+            {
+                Ai.Fail(error);
             }
             else
             {

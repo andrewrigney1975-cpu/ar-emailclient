@@ -54,6 +54,10 @@ public sealed partial class AiSettingsDialog : ContentDialog
         {
             StatusText.Text = $"Active — {Ai.Service.ModelName} ({Ai.Service.Backend}).";
         }
+        else if (Ai.LastError is { Length: > 0 } err)
+        {
+            StatusText.Text = $"Couldn't load this model: {err}\nTry the other model, or Remove and re-download.";
+        }
         else if (installed)
         {
             StatusText.Text = AppSettings.Current.AiEnabled
