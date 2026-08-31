@@ -477,6 +477,51 @@ public sealed partial class MainViewModel : ObservableObject
         IsBusy = false;
     }
 
+    /// Called when IMAP IDLE reports new mail in a folder. Updates the cache and fires a toast
+    /// even if the user is looking at a different folder/account; refreshes the list if it's current.
+    public async Task HandlePushedNewMailAsync(string accountId, string folderFullName)
+    {
+        if (AccountStore.Find(accountId) is not { } account)
+        {
+            return;
+        }
+
+        try
+        {
+            var known = MessageCache.Load(accountId, folderFullName).Select(r => r.Uid).ToHashSet();
+            var live = await Task.Run(() => MailService.GetSummariesAsync(account, folderFullName, CancellationToken.None));
+            MessageCache.Replace(accountId, folderFullName, live);
+
+            var fresh = live.Where(r => !known.Contains(r.Uid)).OrderByDescending(r => r.Date).ToList();
+            var isCurrent = CurrentAccount?.Id == accountId
+                && CurrentFolder.Equals(folderFullName, StringComparison.OrdinalIgnoreCase);
+
+            _dispatcher.TryEnqueue(() =>
+            {
+                if (isCurrent)
+                {
+                    _rows = live;
+                    BuildListNodes();
+                }
+
+                if (fresh.Count > 0)
+                {
+                    var newest = fresh[0];
+                    var label = folderFullName.Split('/', '.').Last();
+                    var body = fresh.Count == 1
+                        ? $"{newest.From}: {newest.SubjectDisplay}"
+                        : $"{fresh.Count} new messages in {label}";
+                    NotificationService.ShowNewMail("New mail", body, new MailRef(accountId, folderFullName, newest.Uid));
+                    StatusText = $"{fresh.Count} new message(s)";
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainViewModel.HandlePushedNewMailAsync", ex);
+        }
+    }
+
     public Task RefreshAsync(bool quiet = false) => SmartView switch
     {
         "unread" => ShowUnreadAsync(),

@@ -28,7 +28,9 @@ public sealed partial class MainWindow : Window
     private readonly MainViewModel _vm;
     private readonly ObservableCollection<MailNode> _railNodes = new();
 
+    // Fast poll when IMAP push isn't available for every account; a slow safety-net poll when it is.
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan PushSafetyNetPollInterval = TimeSpan.FromMinutes(15);
 
     private MailAccount? _composeAccount;
     private MailMessageContent? _composeSource;
@@ -94,7 +96,14 @@ public sealed partial class MainWindow : Window
             onResized: w => AppSettings.Update(s => s.ListWidth = w));
 
         NotificationService.MailActivated += OnMailActivated;
-        AccountStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(BuildTree);
+        AccountStore.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            BuildTree();
+            ImapIdleService.Start(AccountStore.All);
+        });
+        ImapIdleService.NewMessages += (accountId, folder) =>
+            DispatcherQueue.TryEnqueue(() => _ = _vm.HandlePushedNewMailAsync(accountId, folder));
+        ImapIdleService.PushStateChanged += () => DispatcherQueue.TryEnqueue(UpdatePollInterval);
         MessageCache.TagsChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             RefreshTagNodes();
@@ -123,6 +132,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _pollTimer?.Stop();
+            ImapIdleService.StopAll();
             NotificationService.MailActivated -= OnMailActivated;
             MailService.DisconnectAll();
             NotificationService.Unregister();
@@ -137,6 +147,7 @@ public sealed partial class MainWindow : Window
             RailCalendar.SetDisplayDate(DateTimeOffset.Now);
             RefreshCalendarDay();
             CheckEventReminders();
+            ImapIdleService.Start(AccountStore.All);
             StartPolling();
 
             ContactStore.RefreshFromCache();
@@ -233,14 +244,31 @@ public sealed partial class MainWindow : Window
 
     private void StartPolling()
     {
-        _pollTimer = new DispatcherTimer { Interval = PollInterval };
+        _pollTimer = new DispatcherTimer();
         _pollTimer.Tick += async (_, _) =>
         {
             await _vm.RefreshAsync(quiet: true);
             CheckEventReminders();
             ContactStore.RefreshFromCache();
         };
+        UpdatePollInterval();
         _pollTimer.Start();
+    }
+
+    private void UpdatePollInterval()
+    {
+        if (_pollTimer is null)
+        {
+            return;
+        }
+
+        var interval = ImapIdleService.AllAccountsPushing ? PushSafetyNetPollInterval : PollInterval;
+        if (_pollTimer.Interval != interval)
+        {
+            _pollTimer.Interval = interval;
+            LoggingService.Info("MainWindow.UpdatePollInterval",
+                $"poll every {interval.TotalMinutes:0} min (push {(ImapIdleService.AllAccountsPushing ? "active" : "partial/off")})");
+        }
     }
 
     /// Toast for any calendar event that is exactly one day away, once per event.
