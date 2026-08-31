@@ -13,12 +13,17 @@ public static class AiPrompts
 
     public static AiPrompt Summarise(string subject, string from, string? body) => new()
     {
-        System = "You summarise emails. Be concise and factual. Never invent details.",
+        System = "You are an assistant that summarises emails. Be concise and factual. " +
+                 "Only use information from the email. Never invent details.",
         User =
-            $"Summarise this email in 2-4 short bullet points, then a single line starting " +
-            $"\"Action: \" with any action the recipient must take (or \"Action: none\").\n\n" +
-            $"From: {from}\nSubject: {subject}\n\n{Clip(body)}",
-        MaxTokens = 300,
-        Temperature = 0.2f,
+            "Summarise the email below.\n\n" +
+            "Reply with 2 to 4 bullet points covering what the email is about, then one final line " +
+            "in the form `Action: <one thing the reader must do>` (write `Action: none` if there is nothing to do).\n\n" +
+            "----- EMAIL -----\n" +
+            $"From: {from}\nSubject: {subject}\n\n{Clip(body)}\n" +
+            "----- END -----\n\n" +
+            "Summary:",
+        MaxTokens = 350,
+        Temperature = 0.3f,
     };
 }

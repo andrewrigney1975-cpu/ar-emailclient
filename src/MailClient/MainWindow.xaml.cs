@@ -1376,11 +1376,22 @@ public sealed partial class MainWindow : Window
             Services.Ai.Ai.Service.IsReady && _vm.HasMessage ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private static string PlainBody(MailMessageContent msg) =>
-        !string.IsNullOrWhiteSpace(msg.PlainText)
-            ? msg.PlainText!
-            : System.Net.WebUtility.HtmlDecode(
-                System.Text.RegularExpressions.Regex.Replace(msg.Html ?? string.Empty, "<[^>]+>", " "));
+    private static string PlainBody(MailMessageContent msg)
+    {
+        if (!string.IsNullOrWhiteSpace(msg.PlainText))
+        {
+            return msg.PlainText!.Trim();
+        }
+
+        var html = msg.Html ?? string.Empty;
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<(style|script|head)[^>]*>.*?</\1>",
+            " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
+        html = System.Net.WebUtility.HtmlDecode(html);
+        return System.Text.RegularExpressions.Regex.Replace(html, @"[ \t ]+", " ")
+            .Replace("\r", string.Empty)
+            .Trim();
+    }
 
     private async void Summarise_Click(object sender, RoutedEventArgs e)
     {
@@ -1395,7 +1406,9 @@ public sealed partial class MainWindow : Window
         SummaryPanel.Visibility = Visibility.Visible;
         SummaryText.Text = string.Empty;
 
-        var prompt = Services.Ai.AiPrompts.Summarise(msg.Subject, msg.FromDisplay, PlainBody(msg));
+        var body = PlainBody(msg);
+        LoggingService.Info("MainWindow.Summarise", $"body {body.Length} chars, model {Services.Ai.Ai.Service.ModelName}");
+        var prompt = Services.Ai.AiPrompts.Summarise(msg.Subject, msg.FromDisplay, body);
         var builder = new System.Text.StringBuilder();
 
         try
@@ -1408,6 +1421,7 @@ public sealed partial class MainWindow : Window
             }
 
             var summary = builder.ToString().Trim();
+            LoggingService.Info("MainWindow.Summarise", $"output {summary.Length} chars: {summary[..Math.Min(summary.Length, 200)]}");
             if (summary.Length > 0)
             {
                 MessageCache.SaveAiSummary(row.AccountId, row.Folder, row.Uid, summary);

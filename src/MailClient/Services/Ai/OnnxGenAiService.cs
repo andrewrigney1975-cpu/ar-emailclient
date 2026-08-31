@@ -33,7 +33,20 @@ public sealed class OnnxGenAiService : IAiService, IDisposable
     /// Loads the model. Throws OnnxRuntimeGenAIException on an incompatible / broken model.
     public static OnnxGenAiService Create(string modelDir, AiBackend backend, string modelName)
     {
-        var model = new Model(modelDir);
+        Model model;
+        if (backend == AiBackend.DirectMl)
+        {
+            // The published "gpu" builds ship an empty provider list, so force the DirectML EP.
+            using var config = new Config(modelDir);
+            config.ClearProviders();
+            config.AppendProvider("dml");
+            model = new Model(config);
+        }
+        else
+        {
+            model = new Model(modelDir);
+        }
+
         var tokenizer = new Tokenizer(model);
         LoggingService.Info("OnnxGenAiService", $"loaded {modelName} ({backend}) from {modelDir}");
         return new OnnxGenAiService(model, tokenizer, backend, modelName);
@@ -66,20 +79,19 @@ public sealed class OnnxGenAiService : IAiService, IDisposable
                     generator.AppendTokenSequences(sequences);
                     using var stream = _tokenizer.CreateStream();
 
-                    while (!generator.IsDone() && !ct.IsCancellationRequested)
+                    var emitted = 0;
+                    while (!generator.IsDone() && !ct.IsCancellationRequested && emitted < prompt.MaxTokens)
                     {
                         generator.GenerateNextToken();
 
-                        var next = generator.GetNextTokens();
-                        if (next.Length == 0)
+                        foreach (var token in generator.GetNextTokens())
                         {
-                            continue;
-                        }
-
-                        var piece = stream.Decode(next[0]);
-                        if (!string.IsNullOrEmpty(piece))
-                        {
-                            channel.Writer.TryWrite(piece);
+                            emitted++;
+                            var piece = stream.Decode(token);
+                            if (!string.IsNullOrEmpty(piece))
+                            {
+                                channel.Writer.TryWrite(piece);
+                            }
                         }
                     }
                 }
