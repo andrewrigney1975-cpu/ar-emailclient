@@ -30,16 +30,17 @@ public sealed class OnnxGenAiService : IAiService, IDisposable
 
     public string ModelName { get; }
 
-    /// Loads the model. Throws OnnxRuntimeGenAIException on an incompatible / broken model.
+    /// Loads the model with the requested execution provider. Throws on an incompatible model.
     public static OnnxGenAiService Create(string modelDir, AiBackend backend, string modelName)
     {
         Model model;
         if (backend == AiBackend.DirectMl)
         {
-            // The published "gpu" builds ship an empty provider list, so force the DirectML EP.
+            // The published "gpu" builds ship an empty provider list. Set the DirectML provider
+            // via an overlay (not AppendProvider, which turns on graph capture - unsupported for
+            // this model's control-flow nodes).
             using var config = new Config(modelDir);
-            config.ClearProviders();
-            config.AppendProvider("dml");
+            config.Overlay("""{"model":{"decoder":{"session_options":{"provider_options":[{"dml":{}}]}}}}""");
             model = new Model(config);
         }
         else

@@ -23,8 +23,20 @@ public static class AiBootstrapper
         string? error = null;
         try
         {
+            var dir = AiModelManager.Dir(info.Id);
             service = await Task.Run(() =>
-                OnnxGenAiService.Create(AiModelManager.Dir(info.Id), info.Backend, info.DisplayName));
+            {
+                try
+                {
+                    return OnnxGenAiService.Create(dir, info.Backend, info.DisplayName);
+                }
+                catch (Exception dmlEx) when (info.Backend == AiBackend.DirectMl)
+                {
+                    // Fall back to CPU so the feature still works if DirectML rejects the model.
+                    LoggingService.Warn("AiBootstrapper.RefreshAsync (DirectML, falling back to CPU)", dmlEx);
+                    return OnnxGenAiService.Create(dir, AiBackend.Cpu, info.DisplayName + " (CPU fallback)");
+                }
+            });
         }
         catch (Exception ex)
         {
