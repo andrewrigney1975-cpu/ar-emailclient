@@ -207,6 +207,37 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// Moves a message to another folder of the same account (row, cache, server).
+    public async Task MoveAsync(MessageRow row, string destinationFolder)
+    {
+        if (AccountFor(row) is not { } account ||
+            row.Folder.Equals(destinationFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _rows.RemoveAll(r => r.AccountId == row.AccountId && r.Folder == row.Folder && r.Uid == row.Uid);
+        BuildListNodes();
+        if (ReferenceEquals(CurrentOpenRow, row))
+        {
+            CurrentMessage = null;
+            CurrentOpenRow = null;
+        }
+
+        MessageCache.RemoveMessage(row.AccountId, row.Folder, row.Uid);
+
+        try
+        {
+            await Task.Run(() => MailService.MoveAsync(account, row.Folder, row.Uid, destinationFolder, CancellationToken.None));
+            StatusText = "Moved to " + destinationFolder.Split('/', '.').Last();
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainViewModel.MoveAsync", ex);
+            StatusText = "Move failed: " + ex.Message;
+        }
+    }
+
     /// Marks a single message read / unread everywhere (row, cache, server).
     public void SetRead(MessageRow row, bool read)
     {

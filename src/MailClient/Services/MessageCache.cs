@@ -188,6 +188,31 @@ public static class MessageCache
         }
     }
 
+    /// Forgets a single message everywhere in the cache (used after a move/expunge).
+    public static void RemoveMessage(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "DELETE FROM Summaries WHERE AccountId=@a AND Folder=@f AND Uid=@u; " +
+                "DELETE FROM Tags WHERE AccountId=@a AND Folder=@f AND Uid=@u; " +
+                "DELETE FROM Favourites WHERE AccountId=@a AND Folder=@f AND Uid=@u; " +
+                "DELETE FROM Follows WHERE AccountId=@a AND Folder=@f AND Uid=@u; " +
+                "DELETE FROM AiSummaries WHERE AccountId=@a AND Folder=@f AND Uid=@u; " +
+                "DELETE FROM AiReplies WHERE AccountId=@a AND Folder=@f AND Uid=@u;";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.RemoveMessage", ex);
+        }
+    }
+
     public static void ClearAccount(string accountId)
     {
         try

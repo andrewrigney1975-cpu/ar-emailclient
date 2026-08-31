@@ -124,7 +124,8 @@
 
                 <TreeView Grid.Row="1" x:Name="MailTree" Margin="4,0,4,4" SelectionMode="Single"
                           ItemInvoked="MailTree_ItemInvoked"
-                          RightTapped="MailTree_RightTapped">
+                          RightTapped="MailTree_RightTapped"
+                          AllowDrop="True" DragOver="MailTree_DragOver" Drop="MailTree_Drop">
                     <TreeView.ItemTemplate>
                         <DataTemplate>
                             <TreeViewItem ItemsSource="{Binding Children}"
@@ -192,6 +193,8 @@
 
                 <TreeView Grid.Row="1" x:Name="MessageTree" SelectionMode="Single"
                           ItemInvoked="MessageTree_ItemInvoked" RightTapped="MessageTree_RightTapped"
+                          CanDragItems="True" DragItemsStarting="MessageTree_DragItemsStarting"
+                          DragItemsCompleted="MessageTree_DragItemsCompleted"
                           AutomationProperties.Name="Messages">
                     <TreeView.ItemTemplate>
                         <DataTemplate>

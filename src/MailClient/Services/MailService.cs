@@ -362,6 +362,23 @@ public static class MailService
         }, ct);
     }
 
+    public static async Task MoveAsync(MailAccount account, string fromFolder, uint uid, string toFolder, CancellationToken ct)
+    {
+        if (fromFolder.Equals(toFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var conn = ConnectionFor(account);
+        await conn.RunAsync(async client =>
+        {
+            var source = await OpenAsync(client, fromFolder, FolderAccess.ReadWrite, ct);
+            var destination = await client.GetFolderAsync(toFolder, ct);
+            await source.MoveToAsync(new UniqueId(uid), destination, ct);
+            return true;
+        }, ct);
+    }
+
     public static async Task DeleteAsync(MailAccount account, string folderFullName, uint uid, CancellationToken ct)
     {
         var conn = ConnectionFor(account);
