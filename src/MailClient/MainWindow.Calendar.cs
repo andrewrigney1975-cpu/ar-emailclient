@@ -171,14 +171,19 @@ public sealed partial class MainWindow
             var inMonth = day.Month == _calAnchor.Month;
 
             var panel = new StackPanel { Spacing = 2 };
-            panel.Children.Add(new TextBlock
+            var dayNumber = new TextBlock
             {
                 Text = day.Day.ToString(),
                 FontSize = 12,
                 FontWeight = day.Date == today ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal,
-                Foreground = day.Date == today ? AccentBrush : null,
                 Opacity = inMonth ? 1 : 0.35,
-            });
+            };
+            if (day.Date == today)
+            {
+                dayNumber.Foreground = AccentBrush;
+            }
+
+            panel.Children.Add(dayNumber);
 
             var dayEvents = CalendarStore.Between(day, day.AddDays(1));
             foreach (var ev in dayEvents.Take(3))
@@ -241,16 +246,21 @@ public sealed partial class MainWindow
         {
             var day = start.AddDays(c);
 
+            var headerText = new TextBlock
+            {
+                Text = day.ToString("ddd d"),
+                FontWeight = day.Date == today ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.SemiBold,
+                FontSize = 12,
+            };
+            if (day.Date == today)
+            {
+                headerText.Foreground = AccentBrush;
+            }
+
             var header = new Button
             {
-                Content = new TextBlock
-                {
-                    Text = day.ToString("ddd d"),
-                    FontWeight = day.Date == today ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.SemiBold,
-                    Foreground = day.Date == today ? AccentBrush : null,
-                    FontSize = 12,
-                },
-                Background = null,
+                Content = headerText,
+                Background = new SolidColorBrush(Colors.Transparent),
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(4, 2, 4, 4),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
