@@ -24,6 +24,12 @@ public sealed class AppSettingsData
     /// On-device AI. Off until the user opts in and a model has downloaded.
     public bool AiEnabled { get; set; }
     public string AiModelId { get; set; } = "phi-3.5-mini-int4";
+
+    /// Cached AI briefings (regenerated when the stored date is stale).
+    public string BriefTodayDate { get; set; } = string.Empty;
+    public string BriefTodayText { get; set; } = string.Empty;
+    public string BriefWeekDate { get; set; } = string.Empty;
+    public string BriefWeekText { get; set; } = string.Empty;
 }
 
 public static class AppSettings

@@ -1,0 +1,35 @@
+<ContentDialog
+    x:Class="MailClient.Views.AiBriefingDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Briefings"
+    CloseButtonText="Close"
+    DefaultButton="Close">
+
+    <Grid Width="480" RowSpacing="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <SelectorBar x:Name="Tabs" Grid.Row="0" SelectionChanged="Tabs_SelectionChanged">
+            <SelectorBarItem x:Name="TodayTab" Text="Today" IsSelected="True" />
+            <SelectorBarItem x:Name="WeekTab" Text="This week" />
+        </SelectorBar>
+
+        <ProgressRing x:Name="Busy" Grid.Row="1" IsActive="False" Visibility="Collapsed"
+                      HorizontalAlignment="Left" Width="18" Height="18" />
+
+        <ScrollViewer Grid.Row="2" MaxHeight="360" VerticalScrollBarVisibility="Auto">
+            <TextBlock x:Name="BriefText" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                       FontSize="13" LineHeight="19" />
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
+            <Button x:Name="RegenButton" Content="Regenerate" Click="Regen_Click" />
+            <TextBlock Text="Generated on this device." VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+        </StackPanel>
+    </Grid>
+</ContentDialog>

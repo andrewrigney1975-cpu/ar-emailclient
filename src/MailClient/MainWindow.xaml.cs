@@ -1393,6 +1393,11 @@ public sealed partial class MainWindow : Window
         await new AiSettingsDialog { XamlRoot = Content.XamlRoot }.ShowAsync();
     }
 
+    private async void BriefingButton_Click(object sender, RoutedEventArgs e)
+    {
+        await new AiBriefingDialog { XamlRoot = Content.XamlRoot }.ShowAsync();
+    }
+
     private void RefreshSummariseButton()
     {
         var show = Services.Ai.Ai.Service.IsReady && _vm.HasMessage ? Visibility.Visible : Visibility.Collapsed;

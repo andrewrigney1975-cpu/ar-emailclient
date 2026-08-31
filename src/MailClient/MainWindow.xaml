@@ -77,6 +77,11 @@
                     </Button>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Spacing="4" Padding="4,8">
+                    <Button x:Name="BriefingButton" Style="{StaticResource ActivityBarButtonStyle}"
+                            Click="BriefingButton_Click" ToolTipService.ToolTip="Today &amp; weekly briefings"
+                            AutomationProperties.Name="Briefings">
+                        <FontIcon Glyph="&#xE8F1;" FontSize="18" />
+                    </Button>
                     <Button x:Name="AiButton" Style="{StaticResource ActivityBarButtonStyle}"
                             Click="AiButton_Click" ToolTipService.ToolTip="On-device AI"
                             AutomationProperties.Name="AI settings">

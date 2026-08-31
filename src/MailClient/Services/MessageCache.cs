@@ -667,6 +667,46 @@ public static class MessageCache
         }
     }
 
+    public sealed record BriefItem(DateTimeOffset Date, string From, string Subject, bool IsRead, int Priority, string? Summary);
+
+    /// Recent messages across all accounts for the daily/weekly briefings, with their AI summary
+    /// (first line) when one has been generated.
+    public static List<BriefItem> RecentForBriefing(int days, int limit = 120)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT s.DateTicks, s.FromName, s.Subject, s.IsRead, s.Priority, a.Summary " +
+                "FROM Summaries s LEFT JOIN AiSummaries a " +
+                "ON a.AccountId=s.AccountId AND a.Folder=s.Folder AND a.Uid=s.Uid " +
+                "WHERE s.DateTicks >= @cutoff ORDER BY s.DateTicks DESC LIMIT @lim";
+            cmd.Parameters.AddWithValue("@cutoff", DateTimeOffset.Now.AddDays(-days).UtcTicks);
+            cmd.Parameters.AddWithValue("@lim", limit);
+
+            var rows = new List<BriefItem>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new BriefItem(
+                    new DateTimeOffset(reader.GetInt64(0), TimeSpan.Zero),
+                    reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                    reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                    reader.GetInt64(3) != 0,
+                    (int)reader.GetInt64(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5)));
+            }
+
+            return rows;
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.RecentForBriefing", ex);
+            return new List<BriefItem>();
+        }
+    }
+
     public static List<string> AiRepliesFor(string accountId, string folder, uint uid)
     {
         try

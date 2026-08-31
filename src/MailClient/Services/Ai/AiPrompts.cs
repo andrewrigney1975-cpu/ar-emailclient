@@ -57,6 +57,24 @@ public static class AiPrompts
         Temperature = 0.5f,
     };
 
+    public static AiPrompt TodayBrief(string items) => new()
+    {
+        System = "You write a short daily brief for a busy person. 4 to 8 lines, grouped into tiny " +
+                 "sections. Be concise. Only use the items provided - never invent anything.",
+        User = $"Write today's brief from:\n\n{items}",
+        MaxTokens = 400,
+        Temperature = 0.3f,
+    };
+
+    public static AiPrompt WeeklyDigest(string items) => new()
+    {
+        System = "You write a weekly email digest. Group into sections such as 'Bills & payments', " +
+                 "'To follow up', and 'FYI'. Short bullet points. Only use the emails provided.",
+        User = $"Write the weekly digest from these emails:\n\n{items}",
+        MaxTokens = 550,
+        Temperature = 0.3f,
+    };
+
     public static AiPrompt ComposeReply(string instruction, string subject, string from, string? body) => new()
     {
         System = "You write email replies from a short instruction. 1 to 4 sentences. " +
