@@ -18,8 +18,13 @@ public sealed partial class AiSettingsDialog : ContentDialog
         ModelBox.SelectedItem = current;
         EnableToggle.IsOn = AppSettings.Current.AiEnabled;
 
+        Ai.ReadyChanged += OnAiReadyChanged;
+        Closed += (_, _) => Ai.ReadyChanged -= OnAiReadyChanged;
+
         RefreshStatus();
     }
+
+    private void OnAiReadyChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshStatus);
 
     private AiModelInfo? Selected => ModelBox.SelectedItem as AiModelInfo;
 
