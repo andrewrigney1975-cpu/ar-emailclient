@@ -51,6 +51,7 @@ public sealed partial class MainWindow : Window
 
         MailTree.ItemsSource = _railNodes;
         MessageTree.ItemsSource = _vm.ListNodes;
+        HookModifierTracking();
         ComposeAttachmentsList.ItemsSource = _composeAttachments;
         ComposeEditor.NavigationCompleted += (_, _) =>
         {
@@ -1104,7 +1105,21 @@ public sealed partial class MainWindow : Window
 
         if (node.Kind == MailListKind.Message && node.Row is { } row)
         {
-            if (HandleSelectionInvoke(node))
+            LoggingService.Info("MainWindow.MessageTree_ItemInvoked",
+                $"invoked '{row.SubjectDisplay}' ctrl={_ctrlHeld} shift={_shiftHeld}");
+
+            bool selectionGesture;
+            try
+            {
+                selectionGesture = HandleSelectionInvoke(node);
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Warn("MainWindow.MessageTree_ItemInvoked (selection)", ex);
+                selectionGesture = false;
+            }
+
+            if (selectionGesture)
             {
                 return;
             }

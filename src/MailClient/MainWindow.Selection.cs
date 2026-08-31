@@ -1,9 +1,7 @@
 using MailClient.Models;
 using MailClient.Services;
-using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
 
@@ -14,6 +12,28 @@ public sealed partial class MainWindow
     // Multi-selection state for the message list (Ctrl/Shift/Ctrl+A).
     private readonly List<MailListNode> _selection = new();
     private MailListNode? _selectionAnchor;
+    private bool _ctrlHeld;
+    private bool _shiftHeld;
+
+    private void HookModifierTracking()
+    {
+        RootGrid.AddHandler(UIElement.KeyDownEvent,
+            new KeyEventHandler((_, e) => UpdateModifier(e.Key, true)), handledEventsToo: true);
+        RootGrid.AddHandler(UIElement.KeyUpEvent,
+            new KeyEventHandler((_, e) => UpdateModifier(e.Key, false)), handledEventsToo: true);
+    }
+
+    private void UpdateModifier(VirtualKey key, bool down)
+    {
+        if (key is VirtualKey.Control or VirtualKey.LeftControl or VirtualKey.RightControl)
+        {
+            _ctrlHeld = down;
+        }
+        else if (key is VirtualKey.Shift or VirtualKey.LeftShift or VirtualKey.RightShift)
+        {
+            _shiftHeld = down;
+        }
+    }
 
     private IEnumerable<MailListNode> FlatMessageNodes()
     {
@@ -63,16 +83,12 @@ public sealed partial class MainWindow
     private List<MessageRow> SelectedRows() =>
         _selection.Where(n => n.Row is not null).Select(n => n.Row!).ToList();
 
-    private static bool KeyDown(VirtualKey key) =>
-        InputKeyboardSource.GetKeyStateForCurrentThread(key)
-            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-
     /// Called from ItemInvoked for a message row. Returns true if the invoke was a
     /// selection gesture (Ctrl/Shift) and the message should NOT be opened.
     private bool HandleSelectionInvoke(MailListNode node)
     {
-        var ctrl = KeyDown(VirtualKey.Control);
-        var shift = KeyDown(VirtualKey.Shift);
+        var ctrl = _ctrlHeld;
+        var shift = _shiftHeld;
 
         if (ctrl)
         {
@@ -107,7 +123,7 @@ public sealed partial class MainWindow
 
     private void MessageTree_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (KeyDown(VirtualKey.Control) && e.Key == VirtualKey.A)
+        if (_ctrlHeld && e.Key == VirtualKey.A)
         {
             ClearMessageSelection();
             foreach (var n in FlatMessageNodes())
