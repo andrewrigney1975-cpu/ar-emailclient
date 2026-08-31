@@ -118,6 +118,7 @@ public sealed partial class MainWindow : Window
             StartPolling();
 
             ContactStore.RefreshFromCache();
+            _ = Services.Ai.AiBootstrapper.RefreshAsync(DispatcherQueue);
 
             _loaded = true;
             if (_pendingNotificationMail is { } pending)

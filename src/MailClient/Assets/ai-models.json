@@ -1,0 +1,26 @@
+[
+  {
+    "id": "phi-3.5-mini-int4",
+    "displayName": "Phi-3.5 Mini (CPU)",
+    "repo": "microsoft/Phi-3.5-mini-instruct-onnx",
+    "subPath": "cpu_and_mobile/cpu-int4-awq-block-128-acc-level-4",
+    "approxSize": "2.2 GB",
+    "backend": "Cpu"
+  },
+  {
+    "id": "phi-3.5-mini-dml",
+    "displayName": "Phi-3.5 Mini (GPU / DirectML)",
+    "repo": "microsoft/Phi-3.5-mini-instruct-onnx",
+    "subPath": "gpu/gpu-int4-awq-block-128",
+    "approxSize": "2.2 GB",
+    "backend": "DirectMl"
+  },
+  {
+    "id": "llama-3.2-1b-int4",
+    "displayName": "Llama 3.2 1B (CPU, small & fast)",
+    "repo": "onnx-community/Llama-3.2-1B-Instruct-onnx",
+    "subPath": "onnx",
+    "approxSize": "0.9 GB",
+    "backend": "Cpu"
+  }
+]
