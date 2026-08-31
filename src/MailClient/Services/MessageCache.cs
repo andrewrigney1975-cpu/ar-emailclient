@@ -65,7 +65,8 @@ public static class MessageCache
 
                 CREATE TABLE IF NOT EXISTS AiSummaries (
                     AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
-                    Summary TEXT NOT NULL,
+                    Summary TEXT NOT NULL, EventTicks INTEGER NOT NULL DEFAULT 0,
+                    EventTitle TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (AccountId, Folder, Uid));
                 """;
             cmd.ExecuteNonQuery();
@@ -75,6 +76,8 @@ public static class MessageCache
                      {
                          "ALTER TABLE Folders ADD COLUMN Role TEXT NOT NULL DEFAULT ''",
                          "ALTER TABLE Summaries ADD COLUMN Priority INTEGER NOT NULL DEFAULT 1",
+                         "ALTER TABLE AiSummaries ADD COLUMN EventTicks INTEGER NOT NULL DEFAULT 0",
+                         "ALTER TABLE AiSummaries ADD COLUMN EventTitle TEXT NOT NULL DEFAULT ''",
                      })
             {
                 try
@@ -636,22 +639,46 @@ public static class MessageCache
         }
     }
 
-    public static void SaveAiSummary(string accountId, string folder, uint uid, string summary)
+    public static void SaveAiSummary(string accountId, string folder, uint uid, string summary,
+        long eventTicks = 0, string eventTitle = "")
     {
         try
         {
             using var conn = Open();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO AiSummaries VALUES (@a, @f, @u, @s)";
+            cmd.CommandText = "INSERT OR REPLACE INTO AiSummaries VALUES (@a, @f, @u, @s, @et, @etitle)";
             cmd.Parameters.AddWithValue("@a", accountId);
             cmd.Parameters.AddWithValue("@f", folder);
             cmd.Parameters.AddWithValue("@u", (long)uid);
             cmd.Parameters.AddWithValue("@s", summary);
+            cmd.Parameters.AddWithValue("@et", eventTicks);
+            cmd.Parameters.AddWithValue("@etitle", eventTitle);
             cmd.ExecuteNonQuery();
         }
         catch (SqliteException ex)
         {
             LoggingService.Warn("MessageCache.SaveAiSummary", ex);
+        }
+    }
+
+    /// (eventDateTicks, eventTitle) the model extracted for this message, or (0, "").
+    public static (long Ticks, string Title) AiEventFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT EventTicks, EventTitle FROM AiSummaries WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            using var reader = cmd.ExecuteReader();
+            return reader.Read() ? (reader.GetInt64(0), reader.GetString(1)) : (0L, string.Empty);
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.AiEventFor", ex);
+            return (0L, string.Empty);
         }
     }
 

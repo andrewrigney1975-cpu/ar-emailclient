@@ -17,13 +17,17 @@ public static class AiPrompts
                  "Only use information from the email. Never invent details.",
         User =
             "Summarise the email below.\n\n" +
-            "Reply with 2 to 4 bullet points covering what the email is about, then one final line " +
-            "in the form `Action: <one thing the reader must do>` (write `Action: none` if there is nothing to do).\n\n" +
+            "First write 2 to 4 bullet points covering what the email is about.\n" +
+            "Then a line `Action: <one thing the reader must do>` (or `Action: none`).\n" +
+            "Then a final line. If the email has a payment, bill, deadline, renewal or appointment " +
+            "with a date, write exactly:\n" +
+            "EVENT: {\"date\": \"YYYY-MM-DD\", \"title\": \"short imperative title\", \"amount\": \"$0.00 or empty\"}\n" +
+            "Otherwise write: EVENT: none\n\n" +
             "----- EMAIL -----\n" +
             $"From: {from}\nSubject: {subject}\n\n{Clip(body)}\n" +
             "----- END -----\n\n" +
             "Summary:",
-        MaxTokens = 350,
+        MaxTokens = 400,
         Temperature = 0.3f,
     };
 }

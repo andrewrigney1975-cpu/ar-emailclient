@@ -864,6 +864,16 @@ public sealed partial class MainWindow : Window
         RailCalendar.SetDisplayDate(day);
     }
 
+    private void SetCalendarSuggestion(CalendarSuggestion? suggestion)
+    {
+        _currentSuggestion = suggestion;
+        AddToCalendarButton.Visibility = suggestion is null ? Visibility.Collapsed : Visibility.Visible;
+        if (suggestion is { } sg)
+        {
+            AddToCalendarText.Text = $"Add to calendar: {sg.Title} ({sg.Date.LocalDateTime:d MMM})";
+        }
+    }
+
     private async void AddToCalendar_Click(object sender, RoutedEventArgs e)
     {
         if (_currentSuggestion is not { } suggestion)
@@ -1124,12 +1134,18 @@ public sealed partial class MainWindow : Window
                 ? Visibility.Visible : Visibility.Collapsed;
         AlwaysLoadImagesText.Text = $"Always load images from {domain}";
 
-        _currentSuggestion = DateActionScanner.Scan(msg.Subject, msg.Html ?? msg.PlainText, msg.FromAddress);
-        AddToCalendarButton.Visibility = _currentSuggestion is null ? Visibility.Collapsed : Visibility.Visible;
-        if (_currentSuggestion is { } sg)
+        var regexSuggestion = DateActionScanner.Scan(msg.Subject, msg.Html ?? msg.PlainText, msg.FromAddress);
+        CalendarSuggestion? aiSuggestion = null;
+        if (_vm.CurrentOpenRow is { } sgRow)
         {
-            AddToCalendarText.Text = $"Add to calendar: {sg.Title} ({sg.Date.LocalDateTime:d MMM})";
+            var (ticks, title) = MessageCache.AiEventFor(sgRow.AccountId, sgRow.Folder, sgRow.Uid);
+            if (ticks > 0)
+            {
+                aiSuggestion = new CalendarSuggestion(new DateTimeOffset(ticks, TimeSpan.Zero), title);
+            }
         }
+
+        SetCalendarSuggestion(aiSuggestion ?? regexSuggestion);
 
         if (msg.Html is { } html)
         {
@@ -1420,11 +1436,21 @@ public sealed partial class MainWindow : Window
                 SummaryText.Text = builder.ToString();
             }
 
-            var summary = builder.ToString().Trim();
-            LoggingService.Info("MainWindow.Summarise", $"output {summary.Length} chars: {summary[..Math.Min(summary.Length, 200)]}");
-            if (summary.Length > 0)
+            var raw = builder.ToString().Trim();
+            LoggingService.Info("MainWindow.Summarise", $"output {raw.Length} chars: {raw[..Math.Min(raw.Length, 200)]}");
+
+            var (aiEvent, cleanSummary) = Services.Ai.AiActionParser.Parse(raw);
+            SummaryText.Text = cleanSummary;
+
+            if (cleanSummary.Length > 0)
             {
-                MessageCache.SaveAiSummary(row.AccountId, row.Folder, row.Uid, summary);
+                MessageCache.SaveAiSummary(row.AccountId, row.Folder, row.Uid, cleanSummary,
+                    aiEvent?.Date.UtcTicks ?? 0, aiEvent?.Title ?? string.Empty);
+            }
+
+            if (aiEvent is not null)
+            {
+                SetCalendarSuggestion(aiEvent);
             }
         }
         catch (Exception ex)
