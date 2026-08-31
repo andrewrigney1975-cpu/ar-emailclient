@@ -158,9 +158,35 @@ public static class MailService
         await conn.RunAsync(async client =>
         {
             var folder = await client.GetFolderAsync(folderFullName, ct);
-            await folder.DeleteAsync(ct);
+            await DeleteFolderRecursiveAsync(folder, ct);
             return true;
         }, ct);
+    }
+
+    // IMAP won't delete a mailbox that still has children, so delete depth-first.
+    private static async Task DeleteFolderRecursiveAsync(IMailFolder folder, CancellationToken ct)
+    {
+        IList<IMailFolder> children;
+        try
+        {
+            children = await folder.GetSubfoldersAsync(false, ct);
+        }
+        catch (Exception ex) when (ex is ImapCommandException or ImapProtocolException)
+        {
+            children = new List<IMailFolder>();
+        }
+
+        foreach (var child in children)
+        {
+            await DeleteFolderRecursiveAsync(child, ct);
+        }
+
+        if (folder.IsOpen)
+        {
+            await folder.CloseAsync(false, ct);
+        }
+
+        await folder.DeleteAsync(ct);
     }
 
     private static async Task AddFolderTreeAsync(IMailFolder parent, List<FolderInfo> into, HashSet<string> seen, CancellationToken ct)

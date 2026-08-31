@@ -570,6 +570,7 @@ public sealed partial class MainWindow : Window
                 node.Children.Add(root);
             }
 
+            ApplyFolderExpansion(node);
             _railNodes.Add(node);
 
             // Open the last-used folder straight from the local cache before any sync happens.
@@ -681,14 +682,11 @@ public sealed partial class MainWindow : Window
                 foreach (var root in NestFolders(account.Id,
                              folders.Select(f => (f.FullName, f.Name, f.Unread))))
                 {
-                    if (expanded.Contains(root.FolderFullName))
-                    {
-                        RestoreExpanded(root, expanded);
-                    }
-
+                    RestoreExpanded(root, expanded);
                     node.Children.Add(root);
                 }
 
+                ApplyFolderExpansion(node);
                 node.IsExpanded = true;
                 node.IsConnecting = false;
                 LoggingService.Info("MainWindow.LoadFoldersAsync",
@@ -1191,6 +1189,19 @@ public sealed partial class MainWindow : Window
             unread.Click += (_, _) => _vm.SetRead(row, false);
             flyout.Items.Add(read);
             flyout.Items.Add(unread);
+
+            flyout.Items.Add(new MenuFlyoutSeparator());
+            var delete = new MenuFlyoutItem
+            {
+                Text = "Delete",
+                Icon = new FontIcon { Glyph = "" },
+            };
+            delete.Click += async (_, _) =>
+            {
+                await _vm.DeleteAsync(row);
+                await RenderCurrentMessageAsync();
+            };
+            flyout.Items.Add(delete);
 
             flyout.Items.Add(new MenuFlyoutSeparator());
 
