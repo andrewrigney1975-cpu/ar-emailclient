@@ -119,7 +119,11 @@ A pseudo-account pinned above the real accounts, aggregating across every accoun
 - **Windows toast** on new mail and when a calendar event is **one day away**.
 - Clicking a new-mail toast **opens the app and the message**.
 - Toasts are **single-instance** (they don't stack up).
-- New mail is polled **every 2 minutes**; the last-opened folder is loaded first on launch.
+- **Server push (IMAP IDLE)** — a dedicated connection per account watches the INBOX and reacts to
+  new mail within seconds. A background **poll is the fallback**: every 2 minutes normally,
+  dropping to every 15 minutes once every account has a live IDLE connection, and back to 2
+  minutes if push drops or a server lacks the IDLE capability.
+- The last-opened folder is loaded first on launch.
 
 ## On-device AI (optional, no network)
 
@@ -208,7 +212,7 @@ src/MailClient/
 ## Current limitations
 
 - **No OAuth2** — Gmail / Outlook / Yahoo need an app password.
-- **No IMAP IDLE** — new mail is found by a 2-minute poll, not server push.
+- IMAP IDLE watches the **INBOX only**; other folders rely on the poll.
 - HTML remote-content blocking is **regex-based neutralisation**, not a full DOM/CSS sanitiser.
 - AI graph-capture is disabled on DirectML for model compatibility, so GPU inference is not as fast
   as it could be.
