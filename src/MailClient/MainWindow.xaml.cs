@@ -1104,6 +1104,11 @@ public sealed partial class MainWindow : Window
 
         if (node.Kind == MailListKind.Message && node.Row is { } row)
         {
+            if (HandleSelectionInvoke(node))
+            {
+                return;
+            }
+
             await _vm.OpenMessageAsync(row);
             await RenderCurrentMessageAsync();
             return;

@@ -207,8 +207,7 @@
                                 <Grid Background="{Binding IsSelected, Converter={StaticResource SelBrush}}"
                                       Padding="2,4,12,4" HorizontalAlignment="Stretch" CornerRadius="4"
                                       CanDrag="True" DragStarting="MessageRow_DragStarting"
-                                      DropCompleted="Row_DropCompleted"
-                                      PointerPressed="MessageRow_PointerPressed">
+                                      DropCompleted="Row_DropCompleted">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                                                 Visibility="{Binding IsHeader, Converter={StaticResource BoolToVis}}">
                                         <FontIcon Glyph="&#xE8BC;" FontSize="11" Opacity="0.6" VerticalAlignment="Center"
