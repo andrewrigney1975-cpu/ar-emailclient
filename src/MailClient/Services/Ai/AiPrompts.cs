@@ -30,4 +30,20 @@ public static class AiPrompts
         MaxTokens = 400,
         Temperature = 0.3f,
     };
+
+    public static AiPrompt SuggestReplies(string subject, string from, string? body) => new()
+    {
+        System = "You draft brief, polite professional email replies. Each reply is 1 to 3 sentences. " +
+                 "No greeting, no sign-off, no name. Only use facts from the email.",
+        User =
+            "Write THREE different short replies to the email below - e.g. one agreeing, one asking a " +
+            "question, one declining or deferring. Output exactly three lines, each starting \"1. \", " +
+            "\"2. \", \"3. \". Nothing else.\n\n" +
+            "----- EMAIL -----\n" +
+            $"From: {from}\nSubject: {subject}\n\n{Clip(body)}\n" +
+            "----- END -----\n\n" +
+            "1.",
+        MaxTokens = 320,
+        Temperature = 0.6f,
+    };
 }

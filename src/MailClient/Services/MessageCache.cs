@@ -68,6 +68,11 @@ public static class MessageCache
                     Summary TEXT NOT NULL, EventTicks INTEGER NOT NULL DEFAULT 0,
                     EventTitle TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (AccountId, Folder, Uid));
+
+                CREATE TABLE IF NOT EXISTS AiReplies (
+                    AccountId TEXT NOT NULL, Folder TEXT NOT NULL, Uid INTEGER NOT NULL,
+                    Json TEXT NOT NULL,
+                    PRIMARY KEY (AccountId, Folder, Uid));
                 """;
             cmd.ExecuteNonQuery();
 
@@ -192,7 +197,8 @@ public static class MessageCache
             cmd.CommandText =
                 "DELETE FROM Summaries WHERE AccountId = @a; DELETE FROM Folders WHERE AccountId = @a; " +
                 "DELETE FROM Favourites WHERE AccountId = @a; DELETE FROM Tags WHERE AccountId = @a; " +
-                "DELETE FROM Follows WHERE AccountId = @a; DELETE FROM AiSummaries WHERE AccountId = @a;";
+                "DELETE FROM Follows WHERE AccountId = @a; DELETE FROM AiSummaries WHERE AccountId = @a; " +
+                "DELETE FROM AiReplies WHERE AccountId = @a;";
             cmd.Parameters.AddWithValue("@a", accountId);
             cmd.ExecuteNonQuery();
         }
@@ -658,6 +664,46 @@ public static class MessageCache
         catch (SqliteException ex)
         {
             LoggingService.Warn("MessageCache.SaveAiSummary", ex);
+        }
+    }
+
+    public static List<string> AiRepliesFor(string accountId, string folder, uint uid)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT Json FROM AiReplies WHERE AccountId=@a AND Folder=@f AND Uid=@u";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            return cmd.ExecuteScalar() is string json
+                ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>()
+                : new List<string>();
+        }
+        catch (Exception ex) when (ex is SqliteException or System.Text.Json.JsonException)
+        {
+            LoggingService.Warn("MessageCache.AiRepliesFor", ex);
+            return new List<string>();
+        }
+    }
+
+    public static void SaveAiReplies(string accountId, string folder, uint uid, IReadOnlyList<string> replies)
+    {
+        try
+        {
+            using var conn = Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO AiReplies VALUES (@a, @f, @u, @j)";
+            cmd.Parameters.AddWithValue("@a", accountId);
+            cmd.Parameters.AddWithValue("@f", folder);
+            cmd.Parameters.AddWithValue("@u", (long)uid);
+            cmd.Parameters.AddWithValue("@j", System.Text.Json.JsonSerializer.Serialize(replies));
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.Warn("MessageCache.SaveAiReplies", ex);
         }
     }
 

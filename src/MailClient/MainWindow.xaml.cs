@@ -1125,6 +1125,12 @@ public sealed partial class MainWindow : Window
             SummaryPanel.Visibility = Visibility.Collapsed;
         }
 
+        var cachedReplies = _vm.CurrentOpenRow is { } rRow
+            ? MessageCache.AiRepliesFor(rRow.AccountId, rRow.Folder, rRow.Uid)
+            : new List<string>();
+        RepliesList.ItemsSource = cachedReplies;
+        RepliesPanel.Visibility = cachedReplies.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
         var domain = RemoteContentStore.DomainOf(msg.FromAddress);
         var domainAlreadyAllowed = RemoteContentStore.IsAllowed(msg.FromAddress);
         LoadImagesButton.Visibility =
@@ -1388,8 +1394,9 @@ public sealed partial class MainWindow : Window
 
     private void RefreshSummariseButton()
     {
-        SummariseButton.Visibility =
-            Services.Ai.Ai.Service.IsReady && _vm.HasMessage ? Visibility.Visible : Visibility.Collapsed;
+        var show = Services.Ai.Ai.Service.IsReady && _vm.HasMessage ? Visibility.Visible : Visibility.Collapsed;
+        SummariseButton.Visibility = show;
+        SuggestRepliesButton.Visibility = show;
     }
 
     private static string PlainBody(MailMessageContent msg)
@@ -1462,6 +1469,58 @@ public sealed partial class MainWindow : Window
         {
             SummariseButton.IsEnabled = true;
             SummariseButtonText.Text = "Summarise";
+        }
+    }
+
+    private async void SuggestReplies_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm.CurrentMessage is not { } msg || _vm.CurrentOpenRow is not { } row ||
+            !Services.Ai.Ai.Service.IsReady)
+        {
+            return;
+        }
+
+        SuggestRepliesButton.IsEnabled = false;
+        SuggestRepliesButtonText.Text = "Drafting…";
+        RepliesPanel.Visibility = Visibility.Visible;
+        RepliesList.ItemsSource = new List<string> { "…" };
+
+        var prompt = Services.Ai.AiPrompts.SuggestReplies(msg.Subject, msg.FromDisplay, PlainBody(msg));
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            var raw = await Services.Ai.Ai.Service.CompleteAsync(prompt, cts.Token);
+            var replies = Services.Ai.AiReplyParser.Parse(raw);
+            LoggingService.Info("MainWindow.SuggestReplies", $"{replies.Count} replies from {raw.Length} chars");
+
+            if (replies.Count > 0)
+            {
+                MessageCache.SaveAiReplies(row.AccountId, row.Folder, row.Uid, replies);
+                RepliesList.ItemsSource = replies;
+            }
+            else
+            {
+                RepliesList.ItemsSource = new List<string> { "(no replies generated)" };
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn("MainWindow.SuggestReplies_Click", ex);
+            RepliesList.ItemsSource = new List<string> { "Couldn't draft replies: " + ex.Message };
+        }
+        finally
+        {
+            SuggestRepliesButton.IsEnabled = true;
+            SuggestRepliesButtonText.Text = "Suggest replies";
+        }
+    }
+
+    private void ReplyChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string draft } && draft.Length > 2 && _vm.CurrentMessage is { } msg)
+        {
+            StartCompose(ComposeMode.Reply, msg, draft);
         }
     }
 
@@ -1573,7 +1632,7 @@ public sealed partial class MainWindow : Window
         sender.ItemsSource = null;
     }
 
-    private async void StartCompose(ComposeMode mode, MailMessageContent? source)
+    private async void StartCompose(ComposeMode mode, MailMessageContent? source, string? draftText = null)
     {
         var account = _vm.CurrentAccount ?? AccountStore.All.FirstOrDefault();
         if (account is null)
@@ -1593,7 +1652,10 @@ public sealed partial class MainWindow : Window
         ComposeTo.Text = ComposeCc.Text = ComposeSubject.Text = string.Empty;
 
         var signature = BuildSignatureHtml(account.Signature);
-        var body = "<p><br></p>" + signature;
+        var draft = string.IsNullOrWhiteSpace(draftText)
+            ? "<p><br></p>"
+            : $"<p>{Esc(draftText).Replace("\r\n", "\n").Replace("\n", "<br>")}</p><p><br></p>";
+        var body = draft + signature;
         if (_composeSource is { } src)
         {
             var header = mode == ComposeMode.Forward
@@ -1603,7 +1665,7 @@ public sealed partial class MainWindow : Window
                 : $"On {Esc(src.Date.LocalDateTime.ToString("f"))}, {Esc(src.FromDisplay)} wrote:<br>";
             var original = src.Html is { Length: > 0 } h ? InnerHtmlOnly(h)
                 : $"<pre>{Esc(src.PlainText ?? string.Empty)}</pre>";
-            body = $"<p><br></p>{signature}<p><br></p><blockquote>{header}{original}</blockquote>";
+            body = $"{draft}{signature}<p><br></p><blockquote>{header}{original}</blockquote>";
 
             switch (mode)
             {
