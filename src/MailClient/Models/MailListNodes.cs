@@ -27,7 +27,16 @@ public partial class MailListNode : ObservableObject
 
     /// True when this message leaf is part of the current multi-selection.
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowSelectionBar))]
     public partial bool IsSelected { get; set; }
+
+    /// True for the single message currently shown in the reading pane.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowSelectionBar))]
+    public partial bool IsCurrent { get; set; }
+
+    /// Whether to draw the accent bar at the left edge of the row.
+    public bool ShowSelectionBar => IsSelected || IsCurrent;
 
     /// Header text for a date group or thread row.
     public string Header { get; init; } = string.Empty;

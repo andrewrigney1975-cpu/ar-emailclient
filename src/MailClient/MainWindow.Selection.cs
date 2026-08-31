@@ -38,6 +38,26 @@ public sealed partial class MainWindow
         }
     }
 
+    // ----- "currently reading" highlight (left accent bar) -----
+
+    private void MarkCurrentMessageNode(MailListNode current)
+    {
+        foreach (var n in FlatMessageNodes())
+        {
+            n.IsCurrent = ReferenceEquals(n, current);
+        }
+    }
+
+    private void ReapplyCurrentHighlight()
+    {
+        var open = _vm.CurrentOpenRow;
+        foreach (var n in FlatMessageNodes())
+        {
+            n.IsCurrent = open is not null && n.Row is { } r
+                && r.AccountId == open.AccountId && r.Folder == open.Folder && r.Uid == open.Uid;
+        }
+    }
+
     private IEnumerable<MailListNode> FlatMessageNodes()
     {
         IEnumerable<MailListNode> Walk(IEnumerable<MailListNode> nodes)

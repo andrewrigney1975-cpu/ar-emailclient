@@ -51,6 +51,7 @@ public sealed partial class MainWindow : Window
 
         MailTree.ItemsSource = _railNodes;
         MessageTree.ItemsSource = _vm.ListNodes;
+        _vm.ListNodes.CollectionChanged += (_, _) => DispatcherQueue.TryEnqueue(ReapplyCurrentHighlight);
         HookModifierTracking();
         ComposeAttachmentsList.ItemsSource = _composeAttachments;
         ComposeEditor.NavigationCompleted += (_, _) =>
@@ -1130,6 +1131,7 @@ public sealed partial class MainWindow : Window
         }
 
         _lastOpenedNode = node;
+        MarkCurrentMessageNode(node);
         LoggingService.Info("MainWindow.OpenMessageNodeAsync", $"open '{row.SubjectDisplay}'");
 
         try
