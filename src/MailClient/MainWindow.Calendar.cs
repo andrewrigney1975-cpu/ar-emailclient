@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailClient.Models;
 using MailClient.Services;
 using Microsoft.UI;
@@ -29,6 +30,8 @@ public sealed partial class MainWindow
     {
         _calView = Enum.TryParse(AppSettings.Current.CalendarViewMode, out CalView v) ? v : CalView.Week;
         CalViewTabs.SelectedItem = CalViewTabs.Items[(int)_calView];
+        RailCalendar.FirstDayOfWeek =
+            (Windows.Globalization.DayOfWeek)(int)CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
         ResetCalEditor(_calSelected);
     }
 
@@ -52,15 +55,24 @@ public sealed partial class MainWindow
 
     // ----- navigation / view -----
 
-    private static DateTime MondayOf(DateTime d) => d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7));
+    /// Snaps to the start of the week using the OS/region "first day of week" setting.
+    private static DateTime StartOfWeek(DateTime d)
+    {
+        var first = (int)CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
+        var offset = ((int)d.DayOfWeek - first + 7) % 7;
+        return d.Date.AddDays(-offset);
+    }
+
+    /// The working week is always Monday-Friday.
+    private static DateTime WorkWeekStart(DateTime d) => d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7));
 
     private (DateTime Start, int Days, bool Month) Period()
     {
         return _calView switch
         {
-            CalView.Month => (MondayOf(new DateTime(_calAnchor.Year, _calAnchor.Month, 1)), 42, true),
-            CalView.Week => (MondayOf(_calAnchor), 7, false),
-            CalView.WorkWeek => (MondayOf(_calAnchor), 5, false),
+            CalView.Month => (StartOfWeek(new DateTime(_calAnchor.Year, _calAnchor.Month, 1)), 42, true),
+            CalView.Week => (StartOfWeek(_calAnchor), 7, false),
+            CalView.WorkWeek => (WorkWeekStart(_calAnchor), 5, false),
             CalView.ThreeDay => (_calAnchor.Date, 3, false),
             _ => (_calAnchor.Date, 1, false),
         };
