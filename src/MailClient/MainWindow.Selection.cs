@@ -83,21 +83,21 @@ public sealed partial class MainWindow
     private List<MessageRow> SelectedRows() =>
         _selection.Where(n => n.Row is not null).Select(n => n.Row!).ToList();
 
-    /// Called from ItemInvoked for a message row. Returns true if the invoke was a
-    /// selection gesture (Ctrl/Shift) and the message should NOT be opened.
-    private bool HandleSelectionInvoke(MailListNode node)
+    // Ctrl/Shift click handling. The message still opens (via ItemInvoked) — this only
+    // adjusts which rows are highlighted for bulk actions. Plain taps do nothing here.
+    private void MessageRow_Tapped(object sender, TappedRoutedEventArgs e)
     {
-        var ctrl = _ctrlHeld;
-        var shift = _shiftHeld;
+        if ((sender as FrameworkElement)?.DataContext is not MailListNode { Kind: MailListKind.Message } node)
+        {
+            return;
+        }
 
-        if (ctrl)
+        if (_ctrlHeld)
         {
             SetSelected(node, !node.IsSelected);
             _selectionAnchor = node;
-            return true;
         }
-
-        if (shift && _selectionAnchor is { } anchor)
+        else if (_shiftHeld && _selectionAnchor is { } anchor)
         {
             var flat = FlatMessageNodes().ToList();
             var a = flat.IndexOf(anchor);
@@ -111,14 +111,7 @@ public sealed partial class MainWindow
                     SetSelected(flat[i], true);
                 }
             }
-
-            return true;
         }
-
-        // Plain click: drop any multi-selection and let the caller open the message.
-        ClearMessageSelection();
-        _selectionAnchor = node;
-        return false;
     }
 
     private void MessageTree_KeyDown(object sender, KeyRoutedEventArgs e)

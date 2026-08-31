@@ -1105,24 +1105,13 @@ public sealed partial class MainWindow : Window
 
         if (node.Kind == MailListKind.Message && node.Row is { } row)
         {
-            LoggingService.Info("MainWindow.MessageTree_ItemInvoked",
-                $"invoked '{row.SubjectDisplay}' ctrl={_ctrlHeld} shift={_shiftHeld}");
-
-            bool selectionGesture;
-            try
+            // A plain click drops any multi-selection; Ctrl/Shift clicks keep it (see MessageRow_Tapped).
+            if (!_ctrlHeld && !_shiftHeld)
             {
-                selectionGesture = HandleSelectionInvoke(node);
-            }
-            catch (Exception ex)
-            {
-                LoggingService.Warn("MainWindow.MessageTree_ItemInvoked (selection)", ex);
-                selectionGesture = false;
+                ClearMessageSelection();
             }
 
-            if (selectionGesture)
-            {
-                return;
-            }
+            _selectionAnchor = node;
 
             await _vm.OpenMessageAsync(row);
             await RenderCurrentMessageAsync();
