@@ -11,48 +11,46 @@ public sealed partial class MainWindow
     private List<MessageRow> _draggedRows = new();
     private MailNode? _draggedFolder;
 
-    // ----- drag a message from the list -----
+    // ----- drag sources (per-row CanDrag, more reliable than TreeView.CanDragItems) -----
 
-    private void MessageTree_DragItemsStarting(TreeView sender, TreeViewDragItemsStartingEventArgs args)
+    private void MessageRow_DragStarting(UIElement sender, DragStartingEventArgs args)
     {
-        _draggedRows = args.Items
-            .OfType<MailListNode>()
-            .Where(n => n.Kind == MailListKind.Message && n.Row is not null)
-            .Select(n => n.Row!)
-            .ToList();
-
-        if (_draggedRows.Count == 0)
+        if ((sender as FrameworkElement)?.DataContext is MailListNode { Kind: MailListKind.Message, Row: { } row })
+        {
+            _draggedFolder = null;
+            _draggedRows = new List<MessageRow> { row };
+            args.AllowedOperations = DataPackageOperation.Move;
+            args.Data.RequestedOperation = DataPackageOperation.Move;
+            args.Data.SetText(row.SubjectDisplay);
+        }
+        else
         {
             args.Cancel = true;
-            return;
         }
-
-        args.Data.RequestedOperation = DataPackageOperation.Move;
-        args.Data.SetText(string.Join(", ", _draggedRows.Select(r => r.SubjectDisplay)));
     }
 
-    private void MessageTree_DragItemsCompleted(TreeView sender, TreeViewDragItemsCompletedEventArgs args) =>
+    private void FolderRow_DragStarting(UIElement sender, DragStartingEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is MailNode
+            { IsAccount: false, IsSmart: false, FolderFullName.Length: > 0 } node)
+        {
+            _draggedRows = new List<MessageRow>();
+            _draggedFolder = node;
+            args.AllowedOperations = DataPackageOperation.Move;
+            args.Data.RequestedOperation = DataPackageOperation.Move;
+            args.Data.SetText(node.DisplayName);
+        }
+        else
+        {
+            args.Cancel = true;
+        }
+    }
+
+    private void Row_DropCompleted(UIElement sender, DropCompletedEventArgs args)
+    {
         _draggedRows = new List<MessageRow>();
-
-    // ----- drag a folder within the tree -----
-
-    private void MailTree_DragItemsStarting(TreeView sender, TreeViewDragItemsStartingEventArgs args)
-    {
-        _draggedFolder = args.Items.OfType<MailNode>()
-            .FirstOrDefault(n => n is { IsAccount: false, IsSmart: false } && n.FolderFullName.Length > 0);
-
-        if (_draggedFolder is null)
-        {
-            args.Cancel = true;
-            return;
-        }
-
-        args.Data.RequestedOperation = DataPackageOperation.Move;
-        args.Data.SetText(_draggedFolder.DisplayName);
-    }
-
-    private void MailTree_DragItemsCompleted(TreeView sender, TreeViewDragItemsCompletedEventArgs args) =>
         _draggedFolder = null;
+    }
 
     // ----- drop onto the folder tree -----
 
