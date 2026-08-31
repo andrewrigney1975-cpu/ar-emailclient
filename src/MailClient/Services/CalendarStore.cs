@@ -47,6 +47,30 @@ public static class CalendarStore
 
     public static CalendarEvent? Find(string id) => Store.Load().FirstOrDefault(e => e.Id == id);
 
+    public static List<CalendarEvent> Between(DateTime fromLocal, DateTime toLocal) =>
+        Store.Load()
+            .Where(e => e.StartLocal < toLocal && e.EndLocal > fromLocal)
+            .OrderBy(e => e.AllDay ? 0 : 1)
+            .ThenBy(e => e.Date)
+            .ToList();
+
+    public static void Update(CalendarEvent entry)
+    {
+        var list = Store.Load();
+        var index = list.FindIndex(e => e.Id == entry.Id);
+        if (index >= 0)
+        {
+            list[index] = entry;
+        }
+        else
+        {
+            list.Add(entry);
+        }
+
+        Store.Save(list);
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
     public static void SetDone(string id, bool done)
     {
         var list = Store.Load();

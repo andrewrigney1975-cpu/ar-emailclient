@@ -100,6 +100,11 @@ public sealed partial class MainWindow : Window
         {
             RefreshCalendarDay();
             CheckEventReminders();
+            if (_calendarMode)
+            {
+                RenderCalendarGrid();
+                RefreshCalAgenda();
+            }
         });
         Closed += (_, _) =>
         {
@@ -110,6 +115,7 @@ public sealed partial class MainWindow : Window
         };
 
         ApplyCalendarVisibility(settings.CalendarVisible);
+        InitCalendar();
 
         RootGrid.Loaded += async (_, _) =>
         {

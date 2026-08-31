@@ -6,6 +6,9 @@ public sealed class AppSettingsData
     /// Whether the right-rail calendar pane is shown.
     public bool CalendarVisible { get; set; }
 
+    /// Detailed calendar view: Month / Week / WorkWeek / ThreeDay / Day.
+    public string CalendarViewMode { get; set; } = "Week";
+
     /// Last folder the user had open, reopened on the next launch.
     public string LastAccountId { get; set; } = string.Empty;
     public string LastFolder { get; set; } = string.Empty;
