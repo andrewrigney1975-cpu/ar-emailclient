@@ -86,7 +86,22 @@ public sealed partial class MainWindow
     private List<MessageRow> SelectedRows() =>
         _selection.Where(n => n.Row is not null).Select(n => n.Row!).ToList();
 
-    // Called from ItemInvoked. Ctrl toggles this row, Shift extends from the anchor,
+    // The row Grid has CanDrag="True", which stops the TreeView from raising
+    // ItemInvoked/SelectionChanged on a tap. Tapped still fires for a clean tap
+    // (no drag), so this is the real click handler for message rows.
+    private async void MessageRow_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not MailListNode { Kind: MailListKind.Message, Row: { } row } node)
+        {
+            return;
+        }
+
+        LoggingService.Info("MainWindow.MessageRow_Tapped", $"tap '{row.SubjectDisplay}' ctrl={_ctrlHeld} shift={_shiftHeld}");
+        e.Handled = true;
+        await OpenMessageNodeAsync(node, row);
+    }
+
+    // Called from the tap handler. Ctrl toggles this row, Shift extends from the anchor,
     // a plain click drops the multi-selection. Never blocks the message from opening.
     private void UpdateSelectionForClick(MailListNode node)
     {

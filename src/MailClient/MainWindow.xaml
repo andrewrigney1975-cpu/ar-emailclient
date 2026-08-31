@@ -206,7 +206,8 @@
                                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                                 <Grid Background="Transparent" Padding="2,4,12,4" HorizontalAlignment="Stretch"
                                       CanDrag="True" DragStarting="MessageRow_DragStarting"
-                                      DropCompleted="Row_DropCompleted">
+                                      DropCompleted="Row_DropCompleted"
+                                      Tapped="MessageRow_Tapped">
                                     <Border CornerRadius="4" IsHitTestVisible="False" Margin="-2,-2,-8,-2"
                                             Background="{Binding IsSelected, Converter={StaticResource SelBrush}}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
