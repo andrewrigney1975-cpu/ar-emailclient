@@ -58,8 +58,8 @@ public sealed partial class MainWindow : Window
             _ = SetComposeHtmlAsync(_pendingEditorHtml);
         };
 
-        Title = $"WinUI3 Mail — build {BuildInfo.Number}";
-        AppTitleText.Text = $"WinUI3 Mail  ·  build {BuildInfo.Number}";
+        Title = "Dispatch";
+        ToolTipService.SetToolTip(AppTitleText, $"Dispatch — build {BuildInfo.Number}");
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         AppTitleBar.SizeChanged += (_, _) => UpdateTitleBarInset();

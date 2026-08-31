@@ -18,9 +18,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <AssemblyName>winui3-mailclient</AssemblyName>
-    <Product>WinUI3 Mail</Product>
-    <AssemblyTitle>WinUI3 Mail</AssemblyTitle>
+    <AssemblyName>Dispatch</AssemblyName>
+    <Product>Dispatch</Product>
+    <AssemblyTitle>Dispatch</AssemblyTitle>
     <!-- Custom entry point (Program.cs) for single-instance activation. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <StartupObject>MailClient.Program</StartupObject>

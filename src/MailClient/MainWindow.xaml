@@ -35,7 +35,7 @@
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" Margin="14,0,0,0" VerticalAlignment="Center">
                 <Image Source="ms-appx:///Assets/app-icon-32.png" Width="18" Height="18" VerticalAlignment="Center" />
-                <TextBlock x:Name="AppTitleText" Text="WinUI3 Mail" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+                <TextBlock x:Name="AppTitleText" Text="Dispatch" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
                 <TextBlock x:Name="StatusInline" Text="{Binding StatusText}" FontSize="12" Opacity="0.6"
                            VerticalAlignment="Center" Margin="10,0,0,0" />
             </StackPanel>

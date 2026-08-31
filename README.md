@@ -1,4 +1,4 @@
-# WinUI3 Mail
+# Dispatch
 
 A minimal **multi-account IMAP/SMTP desktop mail client** for Windows, built with WinUI 3 (Windows
 App SDK, unpackaged, self-contained). It reuses the shell — VSCode-style left activity bar,
