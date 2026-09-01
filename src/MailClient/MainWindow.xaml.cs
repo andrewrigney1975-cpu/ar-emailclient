@@ -1890,7 +1890,21 @@ public sealed partial class MainWindow : Window
         var text = sender.Text ?? string.Empty;
         var sep = text.LastIndexOfAny(RecipientSeparators);
         var token = text[(sep + 1)..].Trim();
-        sender.ItemsSource = token.Length >= 2 ? ContactStore.Search(token) : null;
+
+        if (token.Length < 2)
+        {
+            sender.ItemsSource = null;
+            return;
+        }
+
+        // Address-book contacts first, then addresses harvested from mail; de-duplicated.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var suggestions = AddressBook.SearchEmails(token)
+            .Concat(ContactStore.Search(token))
+            .Where(s => seen.Add(s))
+            .Take(10)
+            .ToList();
+        sender.ItemsSource = suggestions.Count > 0 ? suggestions : null;
     }
 
     private void RecipientBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)

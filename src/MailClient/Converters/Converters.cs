@@ -1,6 +1,9 @@
+using System.IO;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
+using Windows.Storage.Streams;
 
 namespace MailClient.Converters;
 
@@ -67,6 +70,54 @@ public sealed partial class ReadToWeightConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is bool read && read ? Microsoft.UI.Text.FontWeights.Normal : Microsoft.UI.Text.FontWeights.SemiBold;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
+/// Favourite star: filled + accent when true, outline + muted when false.
+public sealed partial class FavouriteGlyphConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is bool b && b ? "" : "";
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
+public sealed partial class FavouriteBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is bool b && b
+            ? (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"]
+            : (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
+/// A base64-encoded image string to an ImageSource (empty -> null).
+public sealed partial class Base64ToImageConverter : IValueConverter
+{
+    public object? Convert(object value, Type targetType, object parameter, string language)
+    {
+        if (value is not string s || s.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var bytes = System.Convert.FromBase64String(s);
+            var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+            var stream = new InMemoryRandomAccessStream();
+            stream.WriteAsync(bytes.AsBuffer()).AsTask().Wait();
+            stream.Seek(0);
+            image.SetSource(stream);
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }

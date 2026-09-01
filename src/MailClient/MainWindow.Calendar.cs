@@ -86,6 +86,11 @@ public sealed partial class MainWindow
 
     private void SetCalendarMode(bool on)
     {
+        if (on && _contactsMode)
+        {
+            SetContactsMode(false);
+        }
+
         _calendarMode = on;
 
         MailListPane.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
