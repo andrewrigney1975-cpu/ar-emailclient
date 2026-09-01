@@ -111,6 +111,11 @@ public sealed partial class MainWindow
 
     private void GroupList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (!_contactsMode)
+        {
+            return;
+        }
+
         if (GroupList.SelectedItem is not ContactNavItem item)
         {
             return;
@@ -191,6 +196,11 @@ public sealed partial class MainWindow
 
     private void ContactView_Click(object sender, RoutedEventArgs e)
     {
+        if (!_contactsMode)
+        {
+            return;
+        }
+
         if (sender is FrameworkElement { Tag: string view })
         {
             _contactView = view;
@@ -204,18 +214,33 @@ public sealed partial class MainWindow
 
     private void ContactSort_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (!_contactsMode)
+        {
+            return;
+        }
+
         _contactSortByGroup = ContactSortBox.SelectedIndex == 1;
         RenderContactList();
     }
 
     private void ContactSearch_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
+        if (!_contactsMode)
+        {
+            return;
+        }
+
         _contactSearch = (sender.Text ?? string.Empty).Trim();
         RenderContactList();
     }
 
     private void RenderContactList()
     {
+        if (!_contactsMode || ContactRepeater is null)
+        {
+            return;
+        }
+
         IEnumerable<Contact> items = AddressBook.Contacts;
 
         items = _contactFilterKey switch
