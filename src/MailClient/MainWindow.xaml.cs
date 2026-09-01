@@ -1807,6 +1807,9 @@ public sealed partial class MainWindow : Window
                box-sizing:border-box;outline:none;overflow-wrap:anywhere}
           img{max-width:100%;height:auto}
           blockquote{border-left:2px solid #ccc;margin:0 0 0 8px;padding-left:10px;color:#777}
+          table{border-collapse:collapse}
+          td,th{border:1px solid #999;padding:4px 8px;min-width:24px}
+          th{background:#f0f0f0}
           @media (prefers-color-scheme: dark){body{background:#1b1b1b;color:#e6e6e6}}
         </style></head>
         <body contenteditable="true"></body>
@@ -1816,6 +1819,79 @@ public sealed partial class MainWindow : Window
           function exec(c,v){ document.execCommand(c,false,v||null); document.body.focus(); }
           function insertImage(d){ document.execCommand('insertImage',false,d); }
           function insertLink(u){ document.execCommand('createLink',false,u); }
+          function setFont(n){ document.execCommand('fontName',false,n); document.body.focus(); }
+          function setFontSize(px){
+            document.execCommand('fontSize',false,'7');
+            var f=document.getElementsByTagName('font');
+            for(var i=f.length-1;i>=0;i--){
+              if(f[i].getAttribute('size')==='7'){ f[i].removeAttribute('size'); f[i].style.fontSize=px; }
+            }
+            document.body.focus();
+          }
+          function cell(){
+            var s=window.getSelection(); if(!s || !s.rangeCount) return null;
+            var n=s.getRangeAt(0).startContainer;
+            while(n && (n.nodeType!==1 || (n.tagName!=='TD' && n.tagName!=='TH'))) n=n.parentNode;
+            return n;
+          }
+          function tableOf(n){ while(n && n.tagName!=='TABLE') n=n.parentNode; return n; }
+          function cellStyle(c){ c.style.border='1px solid #999'; c.style.padding='4px 8px'; }
+          function insertTable(rows,cols,header){
+            var h='<table style="border-collapse:collapse">';
+            for(var r=0;r<rows;r++){
+              h+='<tr>';
+              for(var c=0;c<cols;c++){
+                var t=(header&&r===0)?'th':'td';
+                var st='border:1px solid #999;padding:4px 8px;min-width:24px'+(t==='th'?';background:#f0f0f0':'');
+                h+='<'+t+' style="'+st+'"><br></'+t+'>';
+              }
+              h+='</tr>';
+            }
+            h+='</table><p><br></p>';
+            document.execCommand('insertHTML',false,h);
+            document.body.focus();
+          }
+          function tableAddRow(after){
+            var c=cell(); if(!c) return; var row=c.parentNode; var n=row.children.length;
+            var nr=row.cloneNode(true);
+            for(var i=0;i<nr.children.length;i++){ var x=nr.children[i]; if(x.tagName==='TH'){ } x.innerHTML='<br>'; }
+            row.parentNode.insertBefore(nr, after?row.nextSibling:row);
+            document.body.focus();
+          }
+          function tableAddCol(after){
+            var c=cell(); if(!c) return; var tbl=tableOf(c);
+            var idx=Array.prototype.indexOf.call(c.parentNode.children,c);
+            var rows=tbl.rows;
+            for(var i=0;i<rows.length;i++){
+              var ref=rows[i].children[idx];
+              var nc=document.createElement(ref&&ref.tagName==='TH'?'th':'td');
+              nc.setAttribute('style', ref?ref.getAttribute('style'):'border:1px solid #999;padding:4px 8px');
+              nc.innerHTML='<br>';
+              rows[i].insertBefore(nc, after?(ref?ref.nextSibling:null):ref);
+            }
+            document.body.focus();
+          }
+          function tableDelRow(){ var c=cell(); if(!c) return; var row=c.parentNode; var tbl=tableOf(c);
+            if(tbl.rows.length<=1) tbl.remove(); else row.remove(); document.body.focus(); }
+          function tableDelCol(){ var c=cell(); if(!c) return; var tbl=tableOf(c);
+            var idx=Array.prototype.indexOf.call(c.parentNode.children,c);
+            if(tbl.rows[0].children.length<=1){ tbl.remove(); document.body.focus(); return; }
+            for(var i=0;i<tbl.rows.length;i++){ var x=tbl.rows[i].children[idx]; if(x) x.remove(); }
+            document.body.focus(); }
+          function tableToggleHeader(){
+            var c=cell(); if(!c) return; var tbl=tableOf(c); var first=tbl.rows[0]; if(!first) return;
+            var makeTh=first.children[0].tagName!=='TH';
+            for(var i=0;i<first.children.length;i++){
+              var old=first.children[i];
+              var nn=document.createElement(makeTh?'th':'td');
+              nn.setAttribute('style',(old.getAttribute('style')||'').replace(/;?background:[^;]*/,''));
+              if(makeTh) nn.style.background='#f0f0f0';
+              nn.innerHTML=old.innerHTML;
+              old.parentNode.replaceChild(nn,old);
+            }
+            document.body.focus();
+          }
+          function tableDelete(){ var c=cell(); if(!c) return; var t=tableOf(c); if(t) t.remove(); document.body.focus(); }
           document.addEventListener('paste', function(e){
             var items=(e.clipboardData||window.clipboardData).items;
             for(var i=0;i<items.length;i++){
@@ -1960,6 +2036,8 @@ public sealed partial class MainWindow : Window
         ComposeStatus.IsOpen = false;
         ComposeSendButton.IsEnabled = true;
         ComposePriority.SelectedIndex = 1;
+        ComposeFont.SelectedIndex = 0;
+        ComposeSize.SelectedIndex = 2;
         ComposeTo.Text = ComposeCc.Text = ComposeSubject.Text = string.Empty;
 
         var signature = BuildSignatureHtml(account.Signature);
@@ -2071,6 +2149,72 @@ public sealed partial class MainWindow : Window
         if (sender is FrameworkElement { Tag: string cmd })
         {
             await ComposeEditor.ExecuteScriptAsync($"exec({JsonSerializer.Serialize(cmd)})");
+        }
+    }
+
+    private async void ComposeFont_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_composeEditorReady && (sender as ComboBox)?.SelectedItem is ContentControl { Content: string font })
+        {
+            await ComposeEditor.ExecuteScriptAsync($"setFont({JsonSerializer.Serialize(font)})");
+        }
+    }
+
+    private async void ComposeSize_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_composeEditorReady && (sender as ComboBox)?.SelectedItem is ContentControl { Content: string px })
+        {
+            await ComposeEditor.ExecuteScriptAsync($"setFontSize({JsonSerializer.Serialize(px + "px")})");
+        }
+    }
+
+    private async void TableInsert_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = new NumberBox { Header = "Rows", Value = 3, Minimum = 1, Maximum = 50, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var cols = new NumberBox { Header = "Columns", Value = 3, Minimum = 1, Maximum = 20, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var header = new CheckBox { Content = "Header row", IsChecked = true };
+        var panel = new StackPanel { Spacing = 10, Width = 260 };
+        panel.Children.Add(rows);
+        panel.Children.Add(cols);
+        panel.Children.Add(header);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Insert table",
+            Content = panel,
+            PrimaryButtonText = "Insert",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            var r = (int)Math.Clamp(double.IsNaN(rows.Value) ? 3 : rows.Value, 1, 50);
+            var c = (int)Math.Clamp(double.IsNaN(cols.Value) ? 3 : cols.Value, 1, 20);
+            var h = header.IsChecked == true ? "true" : "false";
+            await ComposeEditor.ExecuteScriptAsync($"insertTable({r},{c},{h})");
+        }
+    }
+
+    private async void TableCmd_Click(object sender, RoutedEventArgs e)
+    {
+        var script = ((sender as FrameworkElement)?.Tag as string) switch
+        {
+            "rowAbove" => "tableAddRow(false)",
+            "rowBelow" => "tableAddRow(true)",
+            "colLeft" => "tableAddCol(false)",
+            "colRight" => "tableAddCol(true)",
+            "delRow" => "tableDelRow()",
+            "delCol" => "tableDelCol()",
+            "header" => "tableToggleHeader()",
+            "delTable" => "tableDelete()",
+            _ => null,
+        };
+
+        if (script is not null)
+        {
+            await ComposeEditor.ExecuteScriptAsync(script);
         }
     }
 
