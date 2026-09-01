@@ -88,6 +88,21 @@ A pseudo-account pinned above the real accounts, aggregating across every accoun
 - **Recipient auto-complete** from addresses harvested into the contact store.
 - **Signatures** — inserted automatically into new mail and replies.
 
+## Contacts
+
+- **Contacts button** in the activity bar switches to a three-pane address book: a **groups
+  rail**, a **contact editor**, and a **contact list**.
+- A contact has a name / nickname / company, **typed emails** (personal / work / …), **typed
+  phone numbers** (personal & work × mobile & landline, fax, …), **typed postal addresses**, a
+  **date of birth**, **group** membership, **tags**, and a **photo**.
+- **Groups** are user-created and extensible — add / rename / delete from the rail, and
+  **favourite** a group or an individual contact (favourites sort to the top).
+- List view / **tiles** view / **photos** view, sorted by name or by group, with a search box.
+- **Import** from CSV (Outlook / Google export headers), JSON (this app's export or generic
+  objects), or HTML (`mailto:` links and bare addresses) — de-duplicated on email.
+- Contacts feed compose **recipient auto-complete** alongside addresses harvested from mail.
+- Stored locally in `address-book.json`.
+
 ## Tags, favourites, follow-ups, priority
 
 - **Hashtags** — add / remove tags on any message from its context menu; each tag becomes a Smart
@@ -151,7 +166,8 @@ Everything lives under `%LocalAppData%\WinUI3Mail\`:
 | `settings.json` | pane widths, last folder, calendar state, collapsed groups, expanded folders, AI opt-in, cached briefings |
 | `cache.db` | SQLite: folder list, message summaries, tags, favourites, follows, AI summaries/replies |
 | `calendar-events.json` | calendar events |
-| `contacts.json` | harvested contacts for auto-complete |
+| `contacts.json` | addresses harvested from mail for auto-complete |
+| `address-book.json` | the Contacts address book and groups |
 | `remote-image-domains.json` | sender domains allowed to load remote images |
 | `models/` | downloaded ONNX AI models |
 | `app.log` / `crash.log` | diagnostics (next to the exe) |
