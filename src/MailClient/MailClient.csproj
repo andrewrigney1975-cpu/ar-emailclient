@@ -35,6 +35,15 @@
     <PackageReference Include="MailKit" Version="4.13.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI.DirectML" Version="0.14.1" />
+
+    <!-- Office document -> PDF for in-app attachment preview (Syncfusion Community licence). -->
+    <PackageReference Include="Syncfusion.Licensing" Version="27.2.5" />
+    <PackageReference Include="Syncfusion.DocIO.Net.Core" Version="27.2.5" />
+    <PackageReference Include="Syncfusion.DocIORenderer.Net.Core" Version="27.2.5" />
+    <PackageReference Include="Syncfusion.XlsIO.Net.Core" Version="27.2.5" />
+    <PackageReference Include="Syncfusion.XlsIORenderer.Net.Core" Version="27.2.5" />
+    <PackageReference Include="Syncfusion.Presentation.Net.Core" Version="27.2.5" />
+    <PackageReference Include="Syncfusion.PresentationRenderer.Net.Core" Version="27.2.5" />
   </ItemGroup>
 
   <ItemGroup>

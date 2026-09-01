@@ -1506,6 +1506,29 @@ public sealed partial class MainWindow : Window
                 PreviewWeb.Source = new Uri(await PreviewTempFileAsync());
                 PreviewWeb.Visibility = Visibility.Visible;
             }
+            else if (OfficePreview.CanConvert(ext))
+            {
+                PreviewFallbackText.Text = "Rendering preview…";
+                PreviewFallback.Visibility = Visibility.Visible;
+                ShowReading(ReadingMode.Preview);
+
+                var pdf = await OfficePreview.ToPdfAsync(data, ext);
+                if (pdf is null)
+                {
+                    PreviewFallbackText.Text = $"Couldn't render a preview for this {ext} file.";
+                    return;
+                }
+
+                var pdfPath = IoPath.Combine(IoPath.GetTempPath(), "WinUI3Mail",
+                    IoPath.GetFileNameWithoutExtension(name) + ".pdf");
+                IoDirectory.CreateDirectory(IoPath.GetDirectoryName(pdfPath)!);
+                await IoFile.WriteAllBytesAsync(pdfPath, pdf);
+
+                await PreviewWeb.EnsureCoreWebView2Async();
+                PreviewWeb.Source = new Uri(pdfPath);
+                PreviewWeb.Visibility = Visibility.Visible;
+                PreviewFallback.Visibility = Visibility.Collapsed;
+            }
             else if (ext is ".txt" or ".csv" or ".log" or ".md" or ".json" or ".xml" or ".ini"
                      or ".yml" or ".yaml" or ".cs" or ".js" or ".ts" or ".py" or ".c" or ".h" or ".cpp")
             {

@@ -23,6 +23,7 @@ public partial class App : Application
         try
         {
             Services.NotificationService.Register();
+            Services.OfficePreview.RegisterLicense();
             _window = new MainWindow();
             _window.Activate();
 

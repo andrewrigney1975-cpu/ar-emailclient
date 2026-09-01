@@ -74,7 +74,8 @@ A pseudo-account pinned above the real accounts, aggregating across every accoun
   this sender's domain" adds the domain to an allow-list (`remote-image-domains.json`).
 - **Plain-text bodies** render in a selectable text view.
 - **Attachments bar** — preview an attachment in-app (QuickLook-style, like the file-explorer
-  project) or download it.
+  project) or download it. Images, PDF, HTML/SVG and text render directly; **Word, Excel and
+  PowerPoint** files are converted to PDF on the fly (Syncfusion) and shown in the WebView2.
 - Opening a message marks it read on the server.
 - Toolbar: Reply, Reply-all, Forward, **Delete** (also on the message right-click menu). Delete
   moves the message to the server's Trash (or flags + expunges if already there).
@@ -170,6 +171,7 @@ Everything lives under `%LocalAppData%\WinUI3Mail\`:
 | `address-book.json` | the Contacts address book and groups |
 | `remote-image-domains.json` | sender domains allowed to load remote images |
 | `models/` | downloaded ONNX AI models |
+| `syncfusion.license` | Syncfusion Community key for Office previews (optional) |
 | `app.log` / `crash.log` | diagnostics (next to the exe) |
 
 ---
@@ -202,6 +204,14 @@ into the assembly; it shows in the title bar (`Dispatch — build N`) and is ava
 | `CommunityToolkit.Mvvm` | `ObservableObject` / source-generated properties |
 | `System.Security.Cryptography.ProtectedData` | DPAPI password encryption |
 | `Microsoft.ML.OnnxRuntimeGenAI.DirectML` | on-device LLM inference |
+| `Syncfusion.DocIO/XlsIO/Presentation` (+ renderers) | Office attachment → PDF preview |
+
+### Syncfusion licence
+
+The Office-preview packages need a **Syncfusion Community licence key** (free for individuals and
+small teams). Put the key in a `SYNCFUSION_LICENSE_KEY` environment variable, or in a plain-text
+file `%LocalAppData%\WinUI3Mail\syncfusion.license`. Without a key the previews still render but
+carry an evaluation banner.
 
 ## Project layout
 
