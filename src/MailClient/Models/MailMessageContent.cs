@@ -34,4 +34,8 @@ public sealed class MailMessageContent
     public string References { get; init; } = string.Empty;
     public string ReplyToAddress { get; init; } = string.Empty;
     public string FromAddress { get; init; } = string.Empty;
+
+    /// Raw addresses from the original To / Cc headers, for building a Reply-all recipient list.
+    public IReadOnlyList<string> ToAddresses { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> CcAddresses { get; init; } = Array.Empty<string>();
 }

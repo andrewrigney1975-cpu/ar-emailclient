@@ -426,7 +426,9 @@
                                 </StackPanel>
                             </Button>
                             <Button Click="ReplyAll_Click" ToolTipService.ToolTip="Reply all">
-                                <FontIcon Glyph="&#xE8C2;" FontSize="14" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE8C2;" FontSize="14" /><TextBlock Text="Reply all" />
+                                </StackPanel>
                             </Button>
                             <Button Click="Forward_Click" ToolTipService.ToolTip="Forward">
                                 <StackPanel Orientation="Horizontal" Spacing="6">

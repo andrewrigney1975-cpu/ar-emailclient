@@ -1907,6 +1907,28 @@ public sealed partial class MainWindow : Window
         sender.ItemsSource = null;
     }
 
+    // Reply-all Cc: everyone on the original To and Cc, minus the sender (who goes in To) and
+    // minus our own address, de-duplicated case-insensitively.
+    private static string BuildReplyAllCc(MailMessageContent src, MailAccount account)
+    {
+        var exclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            src.ReplyToAddress, src.FromAddress, account.Email, account.Username,
+        };
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cc = new List<string>();
+        foreach (var addr in src.ToAddresses.Concat(src.CcAddresses))
+        {
+            if (!string.IsNullOrWhiteSpace(addr) && !exclude.Contains(addr) && seen.Add(addr))
+            {
+                cc.Add(addr);
+            }
+        }
+
+        return string.Join(", ", cc);
+    }
+
     private async void StartCompose(ComposeMode mode, MailMessageContent? source, string? draftText = null)
     {
         var account = _vm.CurrentAccount ?? AccountStore.All.FirstOrDefault();
@@ -1951,7 +1973,7 @@ public sealed partial class MainWindow : Window
                     break;
                 case ComposeMode.ReplyAll:
                     ComposeTo.Text = src.ReplyToAddress;
-                    ComposeCc.Text = src.CcDisplay;
+                    ComposeCc.Text = BuildReplyAllCc(src, account);
                     ComposeSubject.Text = Prefixed("Re:", src.Subject);
                     break;
                 case ComposeMode.Forward:
@@ -1962,7 +1984,8 @@ public sealed partial class MainWindow : Window
 
         ComposeHeading.Text = mode switch
         {
-            ComposeMode.Reply or ComposeMode.ReplyAll => "Reply",
+            ComposeMode.Reply => "Reply",
+            ComposeMode.ReplyAll => "Reply all",
             ComposeMode.Forward => "Forward",
             _ => "New message",
         };

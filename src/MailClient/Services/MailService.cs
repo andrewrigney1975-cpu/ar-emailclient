@@ -315,6 +315,8 @@ public static class MailService
                     ?? fromAddress,
                 ToDisplay = string.Join(", ", message.To.Mailboxes.Select(m => m.Address)),
                 CcDisplay = string.Join(", ", message.Cc.Mailboxes.Select(m => m.Address)),
+                ToAddresses = message.To.Mailboxes.Select(m => m.Address).ToList(),
+                CcAddresses = message.Cc.Mailboxes.Select(m => m.Address).ToList(),
                 Date = message.Date,
                 Html = html,
                 PlainText = message.TextBody,
