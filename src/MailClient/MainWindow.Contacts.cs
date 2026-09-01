@@ -36,6 +36,19 @@ public sealed partial class MainWindow
 
     private void ContactsMode_Click(object sender, RoutedEventArgs e) => SetContactsMode(!_contactsMode);
 
+    private void MailView_Click(object sender, RoutedEventArgs e)
+    {
+        if (_calendarMode)
+        {
+            SetCalendarMode(false);
+        }
+
+        if (_contactsMode)
+        {
+            SetContactsMode(false);
+        }
+    }
+
     private void SetContactsMode(bool on)
     {
         if (on && _calendarMode)
