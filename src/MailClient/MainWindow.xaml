@@ -3,7 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:conv="using:MailClient.Converters"
-    xmlns:models="using:MailClient.Models">
+    xmlns:models="using:MailClient.Models"
+    xmlns:helpers="using:MailClient.Helpers">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -265,8 +266,8 @@
                 </StackPanel>
             </Grid>
 
-            <Rectangle Grid.Column="2" x:Name="RailSplitter" Width="6" HorizontalAlignment="Stretch"
-                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <helpers:SplitterHandle Grid.Column="2" x:Name="RailSplitter" Width="6" HorizontalAlignment="Stretch"
+                       VerticalAlignment="Stretch" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
             <!-- Message list -->
             <Grid Grid.Column="3" x:Name="MailListPane" Background="{ThemeResource LayerFillColorDefaultBrush}">
@@ -426,8 +427,8 @@
                 </ScrollViewer>
             </Grid>
 
-            <Rectangle Grid.Column="4" x:Name="ReadingSplitter" Width="6" HorizontalAlignment="Stretch"
-                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <helpers:SplitterHandle Grid.Column="4" x:Name="ReadingSplitter" Width="6" HorizontalAlignment="Stretch"
+                       VerticalAlignment="Stretch" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
             <!-- Reading pane -->
             <Grid Grid.Column="5" x:Name="ReadingPane" Background="{ThemeResource LayerFillColorDefaultBrush}">

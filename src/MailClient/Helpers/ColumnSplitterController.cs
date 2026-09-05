@@ -8,7 +8,7 @@ namespace MailClient.Helpers;
 /// (ported from the file explorer project).
 public sealed class ColumnSplitterController
 {
-    private readonly FrameworkElement _splitter;
+    private readonly SplitterHandle _splitter;
     private readonly ColumnDefinition _column;
     private readonly bool _invert;
     private readonly double _min;
@@ -18,7 +18,7 @@ public sealed class ColumnSplitterController
     private double _startWidth;
     private Windows.Foundation.Point _startPoint;
 
-    public ColumnSplitterController(FrameworkElement splitter, ColumnDefinition column, bool invert, double min, double max,
+    public ColumnSplitterController(SplitterHandle splitter, ColumnDefinition column, bool invert, double min, double max,
         Action<double>? onResized = null)
     {
         _splitter = splitter;
@@ -28,6 +28,8 @@ public sealed class ColumnSplitterController
         _max = max;
         _onResized = onResized;
 
+        splitter.PointerEntered += (_, _) => splitter.SetResizeCursor(true);
+        splitter.PointerExited += (_, _) => splitter.SetResizeCursor(false);
         splitter.PointerPressed += OnPressed;
         splitter.PointerMoved += OnMoved;
         splitter.PointerReleased += OnReleased;
